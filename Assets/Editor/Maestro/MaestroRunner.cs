@@ -27,6 +27,29 @@ namespace Maestro.EditorTools
         {
             EditorApplication.update -= Tick;
             EditorApplication.update += Tick;
+            // Journal horodaté des transitions Play Mode et des messages XR (diagnostic des gels à la sortie).
+            PlayLog("domaine chargé | isPlaying=" + EditorApplication.isPlaying + " willChange=" + EditorApplication.isPlayingOrWillChangePlaymode);
+            EditorApplication.playModeStateChanged += s => PlayLog("playModeStateChanged " + s);
+            Application.logMessageReceived += (condition, stackTrace, type) =>
+            {
+                string first = condition.Split('\n')[0];
+                if (type != LogType.Log || first.Contains("XR") || first.Contains("OpenXR") || first.Contains("Hand"))
+                    PlayLog("[" + type + "] " + first);
+            };
+            try
+            {
+                UnityEngine.XR.OpenXR.OpenXRRuntime.wantsToQuit += () => { PlayLog("OpenXRRuntime.wantsToQuit (le runtime OpenXR demande l'arrêt)"); return true; };
+                UnityEngine.XR.OpenXR.OpenXRRuntime.wantsToRestart += () => { PlayLog("OpenXRRuntime.wantsToRestart (perte de session OpenXR)"); return true; };
+            }
+            catch (Exception e) { PlayLog("hooks OpenXR indisponibles : " + e.Message); }
+        }
+
+        public static string PlayLogPath { get { return Path.Combine(ProjectRoot, "Temp", "maestro_playlog.txt"); } }
+
+        public static void PlayLog(string msg)
+        {
+            try { File.AppendAllText(PlayLogPath, DateTime.Now.ToString("HH:mm:ss.fff") + " " + msg + "\n"); }
+            catch (Exception) { }
         }
 
         static void Tick()
