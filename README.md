@@ -46,8 +46,8 @@ L'orchestre est simplifié en cinq groupes :
 | Cordes | Violons, altos, violoncelles, contrebasses |
 | Bois | Flûtes, clarinettes, hautbois, bassons |
 | Cuivres | Trompettes, cors, trombones |
-| Percussions | Timbales et autres percussions |
-| Electro | Basses et autres electro (invisible au départ) |
+| Percussions | Timbales et triangle |
+| Electro | Basses et synthe |
 
 Chaque famille constitue une unité contrôlable indépendamment.
 
