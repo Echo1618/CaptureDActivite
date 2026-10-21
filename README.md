@@ -39,7 +39,7 @@ Cette première version se concentre sur un nombre restreint d'interactions, afi
 
 ### Familles instrumentales
 
-L'orchestre est simplifié en quatre groupes :
+L'orchestre est simplifié en cinq groupes :
 
 | Groupe | Instruments représentés |
 |---|---|
@@ -47,7 +47,7 @@ L'orchestre est simplifié en quatre groupes :
 | Bois | Flûtes, clarinettes, hautbois, bassons |
 | Cuivres | Trompettes, cors, trombones |
 | Percussions | Timbales et autres percussions |
-| Electro | Basses et autres electro |
+| Electro | Basses et autres electro (invisible au départ) |
 
 Chaque famille constitue une unité contrôlable indépendamment.
 
