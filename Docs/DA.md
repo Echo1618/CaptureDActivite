@@ -49,7 +49,7 @@ P2 — après la deadline (idées validées, ne pas commencer avant vendredi soi
 
 Les devs instancient ces prefabs par leur nom exact ; ne pas les renommer sans prévenir.
 
-| Prefab (`Assets/Art/Prefabs/`) | Contenu | Ce que le code attend |
+| Prefab (`Assets/_OrchestraRave/Prefabs/`) | Contenu | Ce que le code attend |
 |---|---|---|
 | `Environment` | Toute la scène décor : sol, podium, plateformes, mur, torches, spots (éteints), caissons (cachés en hauteur) | Un seul objet racine à poser dans la scène principale |
 | `Baguette` | Modèle + collider capsule + Rigidbody | Un enfant nommé `Tip` à la pointe (origine du rayon) |
@@ -83,7 +83,7 @@ Chaque musicien est un prefab séparé pour que le code puisse les activer / cou
 ## Workflow git
 
 1. `git lfs install` une fois sur la machine, puis `git checkout -b da/vitaly` depuis `main` à jour.
-2. Travailler dans `Assets/Art/` et `Assets/Scenes/Art_Sandbox.unity` uniquement. Ne pas toucher à la scène principale des devs.
+2. Travailler dans `Assets/_OrchestraRave/Art/`, `Assets/_OrchestraRave/Prefabs/` et `Assets/_OrchestraRave/Scenes/Tests/Art_Sandbox.unity` uniquement. Ne jamais ouvrir-modifier `Scenes/MainScene.unity`.
 3. Commits petits et fréquents (`art: baguette v1`, `art: musiciens cordes + anim Play`), push en fin de demi-journée.
 4. Quand un prefab est prêt : PR vers `main` avec une capture d'écran. Les devs le posent dans la scène de leur côté.
 5. Avant chaque PR : `git pull --rebase origin main` sur la branche, et vérifier que le projet ouvre sans erreur Console.
