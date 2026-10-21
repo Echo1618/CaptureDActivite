@@ -47,6 +47,7 @@ L'orchestre est simplifié en quatre groupes :
 | Bois | Flûtes, clarinettes, hautbois, bassons |
 | Cuivres | Trompettes, cors, trombones |
 | Percussions | Timbales et autres percussions |
+| Electro | Basses et autres electro |
 
 Chaque famille constitue une unité contrôlable indépendamment.
 
