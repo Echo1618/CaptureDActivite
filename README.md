@@ -280,7 +280,7 @@ Pour chaque famille :
 |---|---|
 | Volume global | Valeur normalisée entre 0 et 1 |
 | Filtre global | Valeur normalisée entre 0 et 1 |
-| Identifiant de famille | Cordes, bois, cuivres ou percussions |
+| Identifiant de famille | Cordes, bois, cuivres ou percussions + Electro|
 | Volume individuel | Valeur normalisée entre 0 et 1 |
 | État mute | Activé / désactivé |
 | Phase musicale | Classical, Transition ou Techno |
