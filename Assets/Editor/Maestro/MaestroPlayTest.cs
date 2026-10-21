@@ -35,7 +35,7 @@ namespace Maestro.EditorTools
 
         static Animator _env;
         static EnvironmentMood _mood;
-        static Transform _opera, _castle, _dome;
+        static Transform _opera, _castle, _dome, _lustreModel, _torch1;
         static Light _lustre;
         static Animator _speakers;
         static Transform _spkFirst, _spkLast;
@@ -133,7 +133,8 @@ namespace Maestro.EditorTools
         {
             return "rave=" + _mood.rave.ToString("F3") + " opera.y=" + _opera.localPosition.y.ToString("F2") + " castle.y=" + _castle.localPosition.y.ToString("F2")
                 + " lustre=" + _lustre.intensity.ToString("F2") + " fog=" + RenderSettings.fogDensity.ToString("F4")
-                + " | dôme y=" + _dome.localPosition.y.ToString("F1") + " échelle x=" + _dome.localScale.x.ToString("F1") + ", lune échelle=" + _mood.moonRenderer.transform.localScale.x.ToString("F1") + ", ambiante=" + RenderSettings.ambientLight.ToString("F2") + ", état=" + EnvState();
+                + " | dôme y=" + _dome.localPosition.y.ToString("F1") + " échelle x=" + _dome.localScale.x.ToString("F2") + ", lune échelle=" + _mood.moonRenderer.transform.localScale.x.ToString("F1") + ", ambiante=" + RenderSettings.ambientLight.ToString("F2")
+                + ", lustre modèle y=" + (_lustreModel != null ? _lustreModel.position.y.ToString("F1") : "?") + ", Torch_1 y=" + (_torch1 != null ? _torch1.position.y.ToString("F1") : "?") + ", état=" + EnvState();
         }
 
         static void Expect(string label, float rave, float operaY, float castleY, float lustre, float fog)
@@ -200,12 +201,17 @@ namespace Maestro.EditorTools
                 _sb.AppendLine("PROBLEME: Environment incomplet (Animator/EnvironmentMood/OperaShell/CastleShell/Dome/Lustre_Light/lune)");
                 return false;
             }
+            _lustreModel = _opera.Find("Lustre/Model");
+            _torch1 = _castle.Find("Torch_1");
 
             GameObject spk = GameObject.Find("Speakers");
             if (spk == null) { _sb.AppendLine("PROBLEME: Speakers introuvable"); return false; }
             _speakers = spk.GetComponent<Animator>();
             _spkFirst = spk.transform.Find("Speaker_1");
             _spkLast = spk.transform.Find("Speaker_" + spk.transform.childCount);
+            int speakerModels = 0;
+            foreach (Transform s in spk.transform) if (s.Find("Model") != null) speakerModels++;
+            _sb.AppendLine("Habillage : lustre modèle=" + (_lustreModel != null) + ", Torch_1 modèle=" + (_torch1 != null && _torch1.Find("Model") != null) + ", caissons avec modèle " + speakerModels + "/" + spk.transform.childCount);
 
             _musicians.Clear();
             foreach (string n in MaestroGreybox.SectionPrefabs)
@@ -259,13 +265,20 @@ namespace Maestro.EditorTools
                         {
                             _captured3s = true;
                             _sb.AppendLine("  À 3 s : " + Sample());
-                            MaestroScreenshot.CaptureView(_sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v3-transition.png"));
                         }
                         if (t >= 7.0)
                         {
                             Expect("À 7 s", 1f, MaestroGreybox.OperaShellRaveY, 0f, 0f, 0.008f);
+                            Check(_dome.localScale.x < 1e-4f, "Coupole à 7 s : échelle " + _dome.localScale.ToString("F2") + " (attendu 0)");
+                            if (_lustreModel != null)
+                            {
+                                float expectedY = MaestroGreybox.LustrePos.y + MaestroGreybox.LustreRise + MaestroGreybox.OperaShellRaveY;
+                                Check(Mathf.Abs(_lustreModel.position.y - expectedY) < 0.05f, "Lustre modèle à 7 s : y monde " + _lustreModel.position.y.ToString("F2") + " (attendu " + expectedY + " = accroche " + MaestroGreybox.LustrePos.y + " + 60 - 30)");
+                            }
+                            if (_torch1 != null)
+                                Check(Mathf.Abs(_torch1.position.y - _torch1.localPosition.y) < 0.05f, "Torch_1 à 7 s : y monde " + _torch1.position.y.ToString("F2") + " (remontée avec le château, attendu " + _torch1.localPosition.y.ToString("F2") + ")");
                             SetSpots(true);
-                            MaestroScreenshot.CaptureView(_sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v3-rave.png"));
+                            MaestroScreenshot.CaptureView(_sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v4-rave.png"));
                             SetSpots(false);
                             _sb.AppendLine("  Spots allumés pour la capture puis réteints (" + SpotsOn() + " allumé(s))");
                             _env.SetTrigger("Reset");
@@ -276,6 +289,7 @@ namespace Maestro.EditorTools
                         if (t >= 7.0)
                         {
                             Expect("7 s après Reset", 0f, 0f, MaestroGreybox.CastleShellHiddenY, MaestroGreybox.LustreIntensity, 0f);
+                            Check(Mathf.Abs(_dome.localScale.x - MaestroGreybox.DomeScale.x) < 0.01f, "Coupole après Reset : échelle " + _dome.localScale.ToString("F1") + " (attendu " + MaestroGreybox.DomeScale.ToString("F1") + ")");
                             NextPhase(3);
                         }
                         break;
@@ -306,8 +320,14 @@ namespace Maestro.EditorTools
                         Track(_spkFirst.localPosition.y, _spkLast.localPosition.y);
                         if (t >= MaestroGreybox.SpeakerDropDuration + 0.8)
                         {
-                            bool dropped = _speakers.GetCurrentAnimatorStateInfo(0).IsName("Dropped") && Mathf.Abs(_spkFirst.localPosition.y - MaestroGreybox.SpeakerRestY) < 0.01f && Mathf.Abs(_spkLast.localPosition.y - MaestroGreybox.SpeakerRestY) < 0.01f;
-                            Check(dropped, "Drop caissons (" + _samples + " éch.) : état Dropped=" + _speakers.GetCurrentAnimatorStateInfo(0).IsName("Dropped") + " | Speaker_1.y " + Range(_minA, _maxA) + " final " + _spkFirst.localPosition.y.ToString("F2") + " | " + _spkLast.name + ".y " + Range(_minB, _maxB) + " final " + _spkLast.localPosition.y.ToString("F2") + " (attendu " + MaestroGreybox.SpeakerHiddenY + " → " + MaestroGreybox.SpeakerRestY + ")");
+                            int landed = 0, models = 0;
+                            foreach (Transform s in _spkFirst.parent)
+                            {
+                                if (Mathf.Abs(s.localPosition.y - MaestroGreybox.SpeakerRestY) < 0.01f) landed++;
+                                if (s.Find("Model") != null) models++;
+                            }
+                            bool dropped = _speakers.GetCurrentAnimatorStateInfo(0).IsName("Dropped") && landed == _spkFirst.parent.childCount && models == _spkFirst.parent.childCount;
+                            Check(dropped, "Drop caissons (" + _samples + " éch.) : état Dropped=" + _speakers.GetCurrentAnimatorStateInfo(0).IsName("Dropped") + " | " + landed + "/" + _spkFirst.parent.childCount + " posés à " + MaestroGreybox.SpeakerRestY + ", " + models + " avec Model | Speaker_1.y " + Range(_minA, _maxA) + " | " + _spkLast.name + ".y " + Range(_minB, _maxB) + " (attendu " + MaestroGreybox.SpeakerHiddenY + " → " + MaestroGreybox.SpeakerRestY + ")");
                             Click("OnMusiciansPlay");
                             NextPhase(7);
                         }

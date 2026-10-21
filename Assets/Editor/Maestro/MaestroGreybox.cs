@@ -97,7 +97,7 @@ namespace Maestro.EditorTools
         public const float CastleShellHiddenY = -45f;
         public const float TransitionDuration = 6f;
         public const float DomeRise = 80f;
-        public const float DomeEndScale = 0.2f;
+        public const float DomeEndScale = 0f;   // v4 : la coupole finit à l'échelle 0 (plus de tache à 60 m de haut)
         public const float LustreRise = 60f;
         public const float WallRadius = 32f;
         public const float WallHeight = 26f;
@@ -107,7 +107,8 @@ namespace Maestro.EditorTools
         // centré plus bas et agrandi : il passe exactement par le haut (24.5) et le bas (-1.5) des murs à r = 32, sommet à 35.5 m.
         public static readonly Vector3 DomeCenter = new Vector3(0f, 8f, 0f);
         public static readonly Vector3 DomeScale = new Vector3(80f, 55f, 80f);
-        public static readonly Vector3 LustrePos = new Vector3(0f, 19f, -6f);
+        // v4 : l'objet Lustre est le point d'accroche (pivot sommet du modèle Lustre.fbx), le lustre pend de 24 à 21.5 m.
+        public static readonly Vector3 LustrePos = new Vector3(0f, 24f, -6f);
         public static readonly Vector3 LintelPos = new Vector3(0f, 17f, 7f);
         public const float TorchBase = 2.5f;
         public const float BrazierBase = 3f;
@@ -115,6 +116,37 @@ namespace Maestro.EditorTools
         public const float OperaLightIntensity = 2.5f;
         public static readonly Color WarmWhite = new Color(1f, 230f / 255f, 190f / 255f);
         public static readonly float[] OperaLightAngles = { 110f, 138f, 166f, 194f, 222f, 250f };
+        // v4 : avant-scène, deux Spot Lights blanc chaud pilotées comme les lumières d'opéra (×1 → ×0)
+        public static readonly Color ProsceniumSpotColor = new Color(1f, 235f / 255f, 200f / 255f);
+        public const float ProsceniumSpotIntensity = 6f;
+        public const float ProsceniumSpotAngle = 60f;
+        public const float ProsceniumSpotRange = 30f;
+        public const int OperaLightCount = 9; // lustre + 6 balcons + 2 avant-scène
+
+        // ----- v4 : props Blender (voir blender/README.md ; avec Bake Axis Conversion l'avant des modèles arrive vers -Z) -----
+        public const float PlateauModelTiltX = -28f;                 // plateau du Pupitre.fbx : centre à 1.10 m, 2.5 cm d'épaisseur, incliné de 28°
+        public const float PlateauModelThickness = 0.025f;
+        public static readonly Vector3 SocleOnModelOffset = new Vector3(0.18f, 0.0125f, -0.10f); // dans le repère du plateau, zone utile 44 × 28 cm
+        public const float SocleModelRadius = 0.035f;
+        public static readonly Vector3 PanelAnchorModelLocalPos = new Vector3(0f, 1.10f + 0.0125f * Mathf.Cos(28f * Mathf.Deg2Rad), -0.0125f * Mathf.Sin(28f * Mathf.Deg2Rad));
+        public static readonly Vector3 PanelAnchorModelLocalEuler = new Vector3(-28f, 0f, 0f);
+        public static readonly Vector3 SpeakerModelLocalPos = new Vector3(0f, -SpeakerRestY, 0f); // pivot base, Speaker_N est le centre du caisson
+        public static readonly Vector3 BannerModelLocalPos = new Vector3(0f, 6f, -0.1f);         // hampe à y = 17, tissu 6 m vers le bas, devant le mur
+        public const float TorchWallOffset = 0.3f;                                               // Torch_N est à 0.3 m de la face du mur
+        public static readonly Vector3 TorchFlameCenter = new Vector3(0f, 0.355f, -0.14f);       // Flamme : origine (0, 0.29, -0.14) + 6.5 cm
+        public static readonly Dictionary<string, string> InstrumentProp = new Dictionary<string, string>
+        {
+            { "Strings", "Luth" }, { "Vent", "Flute" }, { "Brass", "Cor" }, { "Percution", "Tambour" },
+        };
+        // Poses dans le repère du musicien (+Z = vers le joueur) : position sur l'enfant Instrument, rotation sur Model.
+        public static readonly Dictionary<string, Vector3> InstrumentPos = new Dictionary<string, Vector3>
+        {
+            { "Strings", new Vector3(0f, 0.85f, 0.33f) }, { "Vent", new Vector3(0f, 1.17f, 0.35f) }, { "Brass", new Vector3(0f, 1.33f, 0.16f) }, { "Percution", new Vector3(0f, 0f, 0.55f) },
+        };
+        public static readonly Dictionary<string, Vector3> InstrumentEuler = new Dictionary<string, Vector3>
+        {
+            { "Strings", new Vector3(10f, 180f, -35f) }, { "Vent", new Vector3(-40f, 180f, 0f) }, { "Brass", new Vector3(-25f, 180f, 0f) }, { "Percution", Vector3.zero },
+        };
         public static readonly Color AmbientOpera = new Color(0.40f, 0.32f, 0.26f);
         public static readonly Color FogNight = new Color(0.02f, 0.03f, 0.08f);
 
@@ -173,10 +205,12 @@ namespace Maestro.EditorTools
                 BuildVfx();
                 BuildDebugPanel();
                 EnsureEventSystem(scene);
+                EnsureRigPostProcessing(scene);
 
+                Dress();
                 SetupSceneLighting(scene, m.sky, dir);
                 SaveAll(sb);
-                Log("Greybox v3 terminé.");
+                Log("Greybox v4 terminé.");
             }
             finally
             {
@@ -564,6 +598,20 @@ namespace Maestro.EditorTools
             return l;
         }
 
+        static Light SpotLight(string name, Transform parent, Vector3 localPos, Vector3 target, Color color, float intensity, float angle, float range)
+        {
+            GameObject g = Empty(name, parent, localPos, Vector3.zero);
+            g.transform.LookAt(target);
+            Light l = g.AddComponent<Light>();
+            l.type = LightType.Spot;
+            l.color = color;
+            l.intensity = intensity;
+            l.spotAngle = angle;
+            l.range = range;
+            l.shadows = LightShadows.None;
+            return l;
+        }
+
         static GameObject SavePrefab(GameObject go, string path)
         {
             bool ok;
@@ -905,6 +953,9 @@ namespace Maestro.EditorTools
             Transform lum = Empty("Lumieres_Opera", p, Vector3.zero, Vector3.zero).transform;
             for (int i = 0; i < OperaLightAngles.Length; i++)
                 operaLights.Add(PointLight("Opera_Light_" + (i + 1), lum, Polar(BalconyRadius - 3f, OperaLightAngles[i], 11f), WarmWhite, OperaLightIntensity, 20f));
+            // v4 : avant-scène, deux spots blanc chaud vers l'orchestre (pilotés ×1 → ×0 comme les lumières d'opéra)
+            operaLights.Add(SpotLight("Avant_Scene_1", lum, new Vector3(-10f, 16f, 4f), StageLightTarget, ProsceniumSpotColor, ProsceniumSpotIntensity, ProsceniumSpotAngle, ProsceniumSpotRange));
+            operaLights.Add(SpotLight("Avant_Scene_2", lum, new Vector3(10f, 16f, 4f), StageLightTarget, ProsceniumSpotColor, ProsceniumSpotIntensity, ProsceniumSpotAngle, ProsceniumSpotRange));
 
             Log("OperaShell : sol velours, 24 murs r=" + WallRadius + ", 3 anneaux de 17 loges, dôme ellipsoïde centre " + DomeCenter + " échelle " + DomeScale + " (sommet " + (DomeCenter.y + vr).ToString("F1") + " m), corniche, lustre @ " + LustrePos + " (chaîne " + chain.ToString("F1") + " m jusqu'au plafond), proscenium, " + OperaLightAngles.Length + " lumières de balcon.");
         }
@@ -960,6 +1011,13 @@ namespace Maestro.EditorTools
 
         public static Vector3 SoclePosition()
         {
+            if (MaestroProps.Available("Pupitre"))
+            {
+                // Plateau du modèle : centre à 1.10 m, incliné de 28°, socle droit posé dans la zone utile (bord aval en contact)
+                Quaternion mt = Quaternion.Euler(PlateauModelTiltX, 0f, 0f);
+                Vector3 s = PupitrePos + PlateauLocalPos + mt * SocleOnModelOffset;
+                return s + Vector3.up * (SocleModelRadius * Mathf.Tan(Mathf.Abs(PlateauModelTiltX) * Mathf.Deg2Rad));
+            }
             Quaternion tilt = Quaternion.Euler(PlateauTiltX, 0f, 0f);
             Vector3 surface = PupitrePos + PlateauLocalPos + tilt * new Vector3(0.2f, 0.01f, -0.12f);
             float lift = 0.03f * Mathf.Tan(Mathf.Abs(PlateauTiltX) * Mathf.Deg2Rad);
@@ -1300,6 +1358,310 @@ namespace Maestro.EditorTools
             {
                 Log(EventSystemName + " existant avec XR UI Input Module conservé.");
             }
+        }
+
+        /// <summary>Coche Post Processing sur l'instance de scène de la caméra du rig (override d'instance, prefab du sample intact).</summary>
+        static void EnsureRigPostProcessing(Scene scene)
+        {
+            GameObject rig = FindRoot(scene, RigName);
+            Transform camT = rig != null ? rig.transform.Find("Camera Offset/Main Camera") : null;
+            Camera cam = camT != null ? camT.GetComponent<Camera>() : null;
+            if (cam == null) { Log("Rig : caméra Camera Offset/Main Camera introuvable, Post Processing non coché."); return; }
+            UniversalAdditionalCameraData data = cam.GetUniversalAdditionalCameraData();
+            if (!data.renderPostProcessing)
+            {
+                data.renderPostProcessing = true;
+                EditorUtility.SetDirty(data);
+                PrefabUtility.RecordPrefabInstancePropertyModifications(data);
+                Log("Rig : Post Processing coché sur l'instance de Main Camera (override d'instance).");
+            }
+            else
+            {
+                Log("Rig : Post Processing déjà coché sur l'instance de Main Camera.");
+            }
+        }
+
+        // ------------------------------------------------------------------ habillage : props Blender (étape Dress, idempotente)
+
+        [MenuItem("Tools/Maestro/Dress Props")]
+        public static void DressFromMenu()
+        {
+            MaestroRunner.Execute("dress");
+        }
+
+        public static void DressCommand(StringBuilder sb)
+        {
+            _sb = sb;
+            try
+            {
+                Dress();
+                SaveAll(sb);
+            }
+            finally
+            {
+                _sb = null;
+            }
+        }
+
+        /// <summary>
+        /// Remplace les primitives visuelles des prefabs par les modèles FBX (enfant « Model » de l'objet remplacé), en gardant racines,
+        /// composants, enfants nommés et colliders. Travaille sur les assets prefab (LoadPrefabContents) : les instances de scène suivent,
+        /// l'instance Baguette garde ses composants de test. Un modèle absent laisse la primitive en place.
+        /// </summary>
+        static void Dress()
+        {
+            DressPrefab(PrefabDir + "/Baguette.prefab", DressBaguette);
+            DressPrefab(PrefabDir + "/SocleBaguette.prefab", root => DressSimple(root, "SocleBaguette", new[] { "Base", "Anneau" }));
+            DressPrefab(PrefabDir + "/Pupitre.prefab", DressPupitre);
+            DressPrefab(PrefabDir + "/Speakers.prefab", DressSpeakers);
+            foreach (string section in SectionPrefabs)
+            {
+                string s = section;
+                DressPrefab(InstrDir + "/" + s + ".prefab", root => DressSection(root, s));
+            }
+            DressPrefab(PrefabDir + "/Environment.prefab", DressEnvironment);
+        }
+
+        static void DressPrefab(string path, Func<GameObject, int> action)
+        {
+            if (AssetDatabase.LoadAssetAtPath<GameObject>(path) == null) { Log("Dress : prefab absent " + path); return; }
+            GameObject root = PrefabUtility.LoadPrefabContents(path);
+            try
+            {
+                int changes = action(root);
+                if (changes > 0)
+                {
+                    PrefabUtility.SaveAsPrefabAsset(root, path);
+                    Log("Dress : " + Path.GetFileName(path) + " enregistré (" + changes + " changement(s)).");
+                }
+                else
+                {
+                    Log("Dress : " + Path.GetFileName(path) + " inchangé (déjà habillé ou modèle absent).");
+                }
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        /// <summary>Pose le FBX du prop sous parent comme enfant « Model » ; 1 si posé maintenant, 0 si déjà présent ou modèle absent.</summary>
+        static int AttachModel(Transform parent, string prop, Vector3 localPos, Vector3 localEuler, string[] removeChildren, bool stripParent, out GameObject model)
+        {
+            model = null;
+            Transform existing = parent.Find("Model");
+            if (existing != null) { model = existing.gameObject; return 0; }
+            GameObject asset = MaestroProps.LoadModel(prop);
+            if (asset == null) { Log("Dress : modèle " + prop + " absent, primitives conservées sous " + parent.name); return 0; }
+            // Un objet qui était lui-même une primitive porte l'échelle du cube : la remettre à 1 avant d'y poser le modèle.
+            if (stripParent) parent.localScale = Vector3.one;
+            model = (GameObject)PrefabUtility.InstantiatePrefab(asset, parent);
+            model.name = "Model";
+            model.transform.localPosition = localPos;
+            model.transform.localRotation = Quaternion.Euler(localEuler);
+            model.transform.localScale = Vector3.one;
+            foreach (string n in removeChildren)
+            {
+                Transform c = parent.Find(n);
+                if (c != null) UnityEngine.Object.DestroyImmediate(c.gameObject);
+            }
+            if (stripParent) StripPrimitive(parent.gameObject);
+            return 1;
+        }
+
+        static void StripPrimitive(GameObject go)
+        {
+            foreach (Collider c in go.GetComponents<Collider>()) UnityEngine.Object.DestroyImmediate(c);
+            MeshRenderer mr = go.GetComponent<MeshRenderer>();
+            if (mr != null) UnityEngine.Object.DestroyImmediate(mr);
+            MeshFilter mf = go.GetComponent<MeshFilter>();
+            if (mf != null) UnityEngine.Object.DestroyImmediate(mf);
+        }
+
+        /// <summary>Bornes des maillages d'un modèle exprimées dans le repère « space » (8 coins de chaque mesh transformés).</summary>
+        public static Bounds ModelBounds(Transform space, GameObject model)
+        {
+            bool first = true;
+            Bounds b = new Bounds();
+            foreach (MeshFilter mf in model.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null) continue;
+                Bounds mb = mf.sharedMesh.bounds;
+                for (int i = 0; i < 8; i++)
+                {
+                    Vector3 corner = new Vector3((i & 1) == 0 ? mb.min.x : mb.max.x, (i & 2) == 0 ? mb.min.y : mb.max.y, (i & 4) == 0 ? mb.min.z : mb.max.z);
+                    Vector3 p = space.InverseTransformPoint(mf.transform.TransformPoint(corner));
+                    if (first) { b = new Bounds(p, Vector3.zero); first = false; }
+                    else b.Encapsulate(p);
+                }
+            }
+            return b;
+        }
+
+        static int DressBaguette(GameObject root)
+        {
+            GameObject model;
+            int n = AttachModel(root.transform, "Baguette", Vector3.zero, new Vector3(0f, 180f, 0f), new[] { "Corps", "Poignee", "Pointe" }, false, out model);
+            if (model == null) return 0;
+            Bounds b = ModelBounds(root.transform, model);
+            CapsuleCollider cc = root.GetComponent<CapsuleCollider>();
+            if (cc == null) cc = root.AddComponent<CapsuleCollider>();
+            Vector3 center = b.center;
+            float height = b.size.z;
+            float radius = Mathf.Max(0.01f, Mathf.Max(b.size.x, b.size.y) * 0.5f);
+            if ((cc.center - center).magnitude > 1e-5f || Mathf.Abs(cc.height - height) > 1e-5f || Mathf.Abs(cc.radius - radius) > 1e-5f || cc.direction != 2) n = Math.Max(n, 1);
+            cc.direction = 2;
+            cc.center = center;
+            cc.height = height;
+            cc.radius = radius;
+            Transform tip = root.transform.Find("Tip");
+            Log("Baguette : Model (rotation Y 180° → pointe vers +Z) bornes z " + b.min.z.ToString("F3") + " → " + b.max.z.ToString("F3") + ", CapsuleCollider centre " + cc.center.ToString("F3") + " hauteur " + cc.height.ToString("F3") + " rayon " + cc.radius.ToString("F3") + ", Tip conservé @ " + (tip != null ? tip.localPosition.ToString("F2") : "absent"));
+            return n;
+        }
+
+        static int DressSimple(GameObject root, string prop, string[] remove)
+        {
+            GameObject model;
+            int n = AttachModel(root.transform, prop, Vector3.zero, Vector3.zero, remove, false, out model);
+            if (model != null) Log(root.name + " : Model " + prop + " bornes " + ModelBounds(root.transform, model).size.ToString("F3"));
+            return n;
+        }
+
+        static int DressPupitre(GameObject root)
+        {
+            GameObject model;
+            int n = AttachModel(root.transform, "Pupitre", Vector3.zero, Vector3.zero, new[] { "Pied", "Socle", "Plateau" }, false, out model);
+            if (model == null) return 0;
+            Transform anchor = root.transform.Find("PanelAnchor");
+            if (anchor != null)
+            {
+                Vector3 before = anchor.localPosition;
+                Vector3 beforeEuler = anchor.localEulerAngles;
+                if ((anchor.localPosition - PanelAnchorModelLocalPos).magnitude > 1e-5f || Quaternion.Angle(anchor.localRotation, Quaternion.Euler(PanelAnchorModelLocalEuler)) > 0.01f)
+                {
+                    anchor.localPosition = PanelAnchorModelLocalPos;
+                    anchor.localRotation = Quaternion.Euler(PanelAnchorModelLocalEuler);
+                    n = Math.Max(n, 1);
+                    Log("Pupitre : PanelAnchor replacé au centre du plateau du modèle : local " + before.ToString("F4") + " / " + beforeEuler.ToString("F0") + " → " + anchor.localPosition.ToString("F4") + " / " + anchor.localEulerAngles.ToString("F0"));
+                }
+            }
+            Bounds b = ModelBounds(root.transform, model);
+            Log("Pupitre : Model bornes hauteur " + b.size.y.ToString("F3") + " m (plateau à " + PlateauLocalPos.y + " m incliné de " + Mathf.Abs(PlateauModelTiltX) + "°)");
+            return n;
+        }
+
+        static int DressSpeakers(GameObject root)
+        {
+            int n = 0;
+            string sizes = "";
+            foreach (Transform s in root.transform)
+            {
+                if (!s.name.StartsWith("Speaker_")) continue;
+                GameObject model;
+                n += AttachModel(s, "Speaker", SpeakerModelLocalPos, Vector3.zero, new[] { "Box", "Cone" }, false, out model);
+                if (model != null && sizes.Length == 0) sizes = ModelBounds(s, model).size.ToString("F2");
+            }
+            Log("Speakers : Model Speaker sous chaque Speaker_N (pivot base à y = " + SpeakerModelLocalPos.y + ", façade vers -Z), bornes " + sizes);
+            return n;
+        }
+
+        static int DressSection(GameObject root, string section)
+        {
+            string prop = InstrumentProp[section];
+            if (!MaestroProps.Available(prop)) { Log(section + " : modèle " + prop + " absent, instruments primitifs conservés"); return 0; }
+            int n = 0, count = 0;
+            foreach (Transform m in root.transform)
+            {
+                if (!m.name.StartsWith("Musician_")) continue;
+                Transform inst = m.Find("Instrument");
+                if (inst == null) continue;
+                if ((inst.localPosition - InstrumentPos[section]).magnitude > 1e-5f || inst.localRotation != Quaternion.identity || inst.localScale != Vector3.one) n = Math.Max(n, 1);
+                inst.localPosition = InstrumentPos[section];
+                inst.localRotation = Quaternion.identity;
+                inst.localScale = Vector3.one;
+                GameObject model;
+                n += AttachModel(inst, prop, Vector3.zero, InstrumentEuler[section], new string[0], true, out model);
+                if (model != null) count++;
+            }
+            Log(section + " : " + count + " × " + prop + " sous Musician_N/Instrument @ " + InstrumentPos[section].ToString("F2") + " rot " + InstrumentEuler[section].ToString("F0"));
+            return n;
+        }
+
+        static int DressEnvironment(GameObject root)
+        {
+            int n = 0;
+            Transform opera = root.transform.Find("OperaShell");
+            Transform castle = root.transform.Find("CastleShell");
+            if (opera == null || castle == null) { Log("Environment : OperaShell/CastleShell introuvables, rien d'habillé"); return 0; }
+
+            // Lustre : Model au point d'accroche (pivot sommet), chaîne primitive conservée jusqu'au plafond, Point Light au centre des bougies
+            Transform lustre = opera.Find("Lustre");
+            if (lustre != null)
+            {
+                var remove = new List<string> { "Plateau", "Coeur" };
+                for (int i = 1; i <= 12; i++) remove.Add("Perle_" + i);
+                GameObject lm;
+                n += AttachModel(lustre, "Lustre", Vector3.zero, Vector3.zero, remove.ToArray(), false, out lm);
+                if (lm != null)
+                {
+                    Transform lum = lm.transform.Find("Lumieres");
+                    Renderer lr = lum != null ? lum.GetComponent<Renderer>() : null;
+                    Transform light = lustre.Find("Lustre_Light");
+                    if (lr != null && light != null)
+                    {
+                        Vector3 c = lustre.InverseTransformPoint(lr.bounds.center);
+                        if ((light.localPosition - c).magnitude > 1e-4f) { light.localPosition = c; n = Math.Max(n, 1); }
+                        Log("Lustre : Model (pivot sommet, pend de " + lustre.localPosition.y + " à " + (lustre.localPosition.y + ModelBounds(lustre, lm).min.y).ToString("F2") + " m), Lustre_Light au centre des bougies (local " + c.ToString("F2") + "), chaîne conservée jusqu'au plafond.");
+                    }
+                }
+            }
+
+            // Torches murales : Model plaqué sur la face du mur, flamme vers la cour, Point Light sur la flamme
+            int torches = 0;
+            foreach (Transform t in castle)
+            {
+                if (!t.name.StartsWith("Torch_")) continue;
+                Vector3 offset;
+                Vector3 euler;
+                if (t.localPosition.x < -20f) { offset = new Vector3(-TorchWallOffset, 0f, 0f); euler = new Vector3(0f, -90f, 0f); }
+                else if (t.localPosition.x > 20f) { offset = new Vector3(TorchWallOffset, 0f, 0f); euler = new Vector3(0f, 90f, 0f); }
+                else { offset = new Vector3(0f, 0f, TorchWallOffset); euler = Vector3.zero; }
+                GameObject tm;
+                n += AttachModel(t, "Torche", offset, euler, new[] { "Manche", "Flamme" }, false, out tm);
+                if (tm == null) continue;
+                torches++;
+                Transform light = t.Find("Torch_Light");
+                Vector3 flame = offset + Quaternion.Euler(euler) * TorchFlameCenter;
+                if (light != null && (light.localPosition - flame).magnitude > 1e-4f) { light.localPosition = flame; n = Math.Max(n, 1); }
+            }
+            Log("CastleShell : " + torches + " torche(s) murale(s) habillée(s) (Torche.fbx plaqué au mur, Torch_Light sur la flamme).");
+
+            // Bannières : Banniere.fbx (hampe à y = 17) à la place des cubes, rouge / bleu alternés
+            Material blue = AssetDatabase.LoadAssetAtPath<Material>(MaestroProps.MaterialPath("M_Banniere_VeloursBleu"));
+            int banners = 0;
+            for (int i = 1; i <= 4; i++)
+            {
+                Transform b = castle.Find("Banniere_" + i);
+                if (b == null) continue;
+                GameObject bm;
+                n += AttachModel(b, "Banniere", BannerModelLocalPos, Vector3.zero, new string[0], true, out bm);
+                if (bm == null) continue;
+                banners++;
+                if (i % 2 == 0 && blue != null)
+                {
+                    Renderer r = bm.GetComponent<Renderer>();
+                    if (r != null)
+                    {
+                        Material[] mats = r.sharedMaterials;
+                        bool changed = false;
+                        for (int k = 0; k < mats.Length; k++)
+                            if (mats[k] != null && mats[k].name == "M_Banniere_VeloursRouge") { mats[k] = blue; changed = true; }
+                        if (changed) { r.sharedMaterials = mats; n = Math.Max(n, 1); }
+                    }
+                }
+            }
+            Log("CastleShell : " + banners + " bannière(s) habillée(s) (Banniere.fbx, velours rouge / bleu alternés).");
+            return n;
         }
     }
 }

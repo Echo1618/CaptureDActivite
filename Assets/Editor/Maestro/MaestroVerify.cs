@@ -190,8 +190,8 @@ namespace Maestro.EditorTools
                     bool intensOk = torches > 0 && braziers > 0;
                     foreach (var l in mood.torchLights ?? new Light[0]) if (l == null || Mathf.Abs(l.intensity - MaestroGreybox.TorchBase) > 0.001f) intensOk = false;
                     foreach (var l in mood.brazierLights ?? new Light[0]) if (l == null || Mathf.Abs(l.intensity - MaestroGreybox.BrazierBase) > 0.001f) intensOk = false;
-                    bool ok = nulls == 0 && opera == 7 && torches == 12 && braziers == 4 && bases && moonOk && intensOk && Mathf.Abs(mood.rave) < 1e-6f;
-                    sb.AppendLine((ok ? "EnvironmentMood OK : " : "PROBLEME EnvironmentMood : ") + refs + " références (" + nulls + " nulle(s)), rave=" + mood.rave + ", lumières opéra " + opera + " (attendu 7), torches " + torches + " à " + MaestroGreybox.TorchBase + " (attendu 12), braseros " + braziers + " à " + MaestroGreybox.BrazierBase + " (attendu 4), lune échelle 0 sous CastleShell=" + moonOk + ", Directional=" + (mood.directionalLight != null ? mood.directionalLight.name : "null"));
+                    bool ok = nulls == 0 && opera == MaestroGreybox.OperaLightCount && torches == 12 && braziers == 4 && bases && moonOk && intensOk && Mathf.Abs(mood.rave) < 1e-6f;
+                    sb.AppendLine((ok ? "EnvironmentMood OK : " : "PROBLEME EnvironmentMood : ") + refs + " références (" + nulls + " nulle(s)), rave=" + mood.rave + ", lumières opéra " + opera + " (attendu " + MaestroGreybox.OperaLightCount + " : lustre + 6 balcons + 2 avant-scène), torches " + torches + " à " + MaestroGreybox.TorchBase + " (attendu 12), braseros " + braziers + " à " + MaestroGreybox.BrazierBase + " (attendu 4), lune échelle 0 sous CastleShell=" + moonOk + ", Directional=" + (mood.directionalLight != null ? mood.directionalLight.name : "null"));
                     if (!ok) problems++;
                 }
             }
@@ -284,14 +284,19 @@ namespace Maestro.EditorTools
             GameObject pup = Find(roots, "Pupitre");
             if (pup != null)
             {
+                bool dressed = MaestroProps.Available("Pupitre") && pup.transform.Find("Model") != null;
                 Transform plateau = pup.transform.Find("Plateau");
-                bool pivotOk = (pup.transform.position - MaestroGreybox.PupitrePos).magnitude < 0.001f && plateau != null && Mathf.Abs(plateau.localPosition.y - 1.1f) < 0.001f;
-                sb.AppendLine((pivotOk ? "Pupitre OK : " : "PROBLEME Pupitre : ") + "pivot à la base, instance @ " + pup.transform.position.ToString("F2") + ", plateau local y=" + (plateau != null ? plateau.localPosition.y.ToString("F2") : "?"));
+                bool plateauOk = dressed || (plateau != null && Mathf.Abs(plateau.localPosition.y - 1.1f) < 0.001f);
+                bool pivotOk = (pup.transform.position - MaestroGreybox.PupitrePos).magnitude < 0.001f && plateauOk;
+                sb.AppendLine((pivotOk ? "Pupitre OK : " : "PROBLEME Pupitre : ") + "pivot à la base, instance @ " + pup.transform.position.ToString("F2") + (dressed ? ", plateau = modèle Pupitre.fbx (1.10 m, 28°)" : ", plateau local y=" + (plateau != null ? plateau.localPosition.y.ToString("F2") : "?")));
                 if (!pivotOk) problems++;
             }
 
             // ---------------------------------------------------------------- 6. DebugPanel + EventSystem
             problems += CheckDebugPanel(sb, roots);
+
+            // ---------------------------------------------------------------- 6 bis. Habillage par les props Blender (v4)
+            problems += CheckDressing(sb, roots);
 
             // ---------------------------------------------------------------- 7. Visibilité mode opéra (état sauvegardé)
             sb.AppendLine("--- Visibilité mode opéra (OperaShell à 0, CastleShell enterrée) ---");
@@ -397,6 +402,211 @@ namespace Maestro.EditorTools
             sb.AppendLine((esOk ? "EventSystem OK : " : "PROBLEME EventSystem : ") + (es == null ? "absent" : "EventSystem=" + (es.GetComponent<EventSystem>() != null) + " XRUIInputModule=" + (es.GetComponent<XRUIInputModule>() != null)));
             if (!esOk) problems++;
             return problems;
+        }
+
+        // ---------------------------------------------------------------- habillage v4
+
+        static int CheckModel(StringBuilder sb, Transform owner, string label, string[] removed, Func<Bounds, bool> dim, string dimLabel)
+        {
+            if (owner == null) { sb.AppendLine("PROBLEME: " + label + " introuvable"); return 1; }
+            Transform model = owner.Find("Model");
+            if (model == null) { sb.AppendLine("PROBLEME: " + label + " sans enfant Model"); return 1; }
+            var left = new List<string>();
+            foreach (string r in removed) if (owner.Find(r) != null) left.Add(r);
+            bool selfPrimitive = removed.Length == 0 && owner.GetComponent<MeshRenderer>() != null;
+            bool scaleOk = (model.lossyScale - Vector3.one).magnitude < 1e-3f;
+            Bounds b = MaestroGreybox.ModelBounds(owner, model.gameObject);
+            bool dimOk = dim == null || dim(b);
+            bool ok = left.Count == 0 && dimOk && !selfPrimitive && scaleOk;
+            sb.AppendLine((ok ? "Modèle OK : " : "PROBLEME modèle : ") + label + " : Model présent, bornes " + b.size.ToString("F3") + (dimOk ? " (" + dimLabel + ")" : " (ATTENDU " + dimLabel + ")")
+                + (left.Count > 0 ? ", primitives restantes : " + string.Join(", ", left) : "") + (selfPrimitive ? ", MeshRenderer primitif toujours sur l'objet" : "") + (scaleOk ? "" : ", ÉCHELLE MONDE " + model.lossyScale.ToString("F2") + " (attendu 1)"));
+            return ok ? 0 : 1;
+        }
+
+        static int CheckDressing(StringBuilder sb, GameObject[] roots)
+        {
+            int problems = 0;
+            int available = 0;
+            foreach (string p in MaestroProps.PropNames) if (MaestroProps.Available(p)) available++;
+            sb.AppendLine("--- Habillage (props Blender) : " + available + "/" + MaestroProps.PropNames.Length + " modèles importés ---");
+            if (available == 0) { sb.AppendLine("PROBLEME: aucun modèle importé, primitives conservées"); return 1; }
+            int embeddedTotal = 0;
+            foreach (string p in MaestroProps.PropNames)
+            {
+                string fbx = MaestroProps.FbxPath(p);
+                if (AssetDatabase.LoadAssetAtPath<GameObject>(fbx) == null) { sb.AppendLine("PROBLEME: FBX manquant " + fbx); problems++; continue; }
+                foreach (UnityEngine.Object o in AssetDatabase.LoadAllAssetsAtPath(fbx)) if (o is Material) embeddedTotal++;
+            }
+            sb.AppendLine((embeddedTotal == 0 ? "FBX OK : " : "PROBLEME FBX : ") + "matériaux incorporés restants " + embeddedTotal + " (attendu 0, tous les slots remappés)");
+            if (embeddedTotal > 0) problems++;
+
+            GameObject bag = Find(roots, "Baguette");
+            problems += CheckModel(sb, bag != null ? bag.transform : null, "Baguette", new[] { "Corps", "Poignee", "Pointe" }, b => Mathf.Abs(b.size.z - 0.25f) < 0.02f && b.max.z > 0.2f, "longueur ≈ 0.25 m vers +Z");
+            if (bag != null)
+            {
+                Transform tip = bag.transform.Find("Tip");
+                CapsuleCollider cc = bag.GetComponent<CapsuleCollider>();
+                bool tipOk = tip != null && (tip.localPosition - new Vector3(0f, 0f, 0.25f)).magnitude < 1e-4f;
+                bool ccOk = cc != null && cc.direction == 2 && Mathf.Abs(cc.height - 0.25f) < 0.02f;
+                sb.AppendLine((tipOk && ccOk ? "Baguette OK : " : "PROBLEME Baguette : ") + "Tip local " + (tip != null ? tip.localPosition.ToString("F3") : "absent") + " (attendu (0, 0, 0.25)), CapsuleCollider " + (cc != null ? "hauteur " + cc.height.ToString("F3") + " rayon " + cc.radius.ToString("F3") + " centre " + cc.center.ToString("F3") : "absent"));
+                if (!(tipOk && ccOk)) problems++;
+            }
+
+            GameObject socle = Find(roots, "SocleBaguette");
+            problems += CheckModel(sb, socle != null ? socle.transform : null, "SocleBaguette", new[] { "Base", "Anneau" }, b => Mathf.Abs(b.size.x - 0.07f) < 0.01f && b.size.y < 0.03f, "Ø 7 cm, 2 cm de haut");
+            if (socle != null)
+            {
+                Transform rp = socle.transform.Find("RestPoint");
+                Vector3 expected = MaestroGreybox.SoclePosition() + new Vector3(0f, 0.03f, 0f);
+                bool ok = rp != null && (rp.localPosition - new Vector3(0f, 0.03f, 0f)).magnitude < 1e-4f && (rp.position - expected).magnitude < 1e-3f;
+                sb.AppendLine((ok ? "SocleBaguette OK : " : "PROBLEME SocleBaguette : ") + "RestPoint local " + (rp != null ? rp.localPosition.ToString("F3") : "absent") + ", monde " + (rp != null ? rp.position.ToString("F3") : "?") + " (attendu " + expected.ToString("F3") + ")");
+                if (!ok) problems++;
+            }
+
+            GameObject pup = Find(roots, "Pupitre");
+            problems += CheckModel(sb, pup != null ? pup.transform : null, "Pupitre", new[] { "Pied", "Socle", "Plateau" }, b => Mathf.Abs(b.size.y - 1.208f) < 0.03f, "hauteur ≈ 1.21 m, plateau à 1.10 m");
+            if (pup != null)
+            {
+                Transform pa = pup.transform.Find("PanelAnchor");
+                Vector3 expected = MaestroGreybox.PupitrePos + MaestroGreybox.PanelAnchorModelLocalPos;
+                bool ok = pa != null && (pa.position - expected).magnitude < 1e-3f && Quaternion.Angle(pa.localRotation, Quaternion.Euler(MaestroGreybox.PanelAnchorModelLocalEuler)) < 0.05f;
+                sb.AppendLine((ok ? "Pupitre OK : " : "PROBLEME Pupitre : ") + "PanelAnchor monde " + (pa != null ? pa.position.ToString("F4") + " rot " + pa.eulerAngles.ToString("F0") : "absent") + " (attendu " + expected.ToString("F4") + " rot " + MaestroGreybox.PanelAnchorModelLocalEuler.ToString("F0") + " = centre du plateau du modèle)");
+                if (!ok) problems++;
+            }
+
+            GameObject spk = Find(roots, "Speakers");
+            if (spk != null)
+                foreach (Transform s in spk.transform)
+                    if (s.name.StartsWith("Speaker_")) problems += CheckModel(sb, s, "Speakers/" + s.name, new[] { "Box", "Cone" }, b => Mathf.Abs(b.size.y - 3f) < 0.05f && b.min.y < -1.45f, "3 m de haut, base à -1.5");
+            else { sb.AppendLine("PROBLEME: Speakers introuvable"); problems++; }
+
+            foreach (string n in MaestroGreybox.SectionPrefabs)
+            {
+                GameObject s = Find(roots, n);
+                if (s == null) continue;
+                int withModel = 0, total = 0, primitive = 0, badScale = 0;
+                foreach (Transform m in s.transform)
+                {
+                    Transform inst = m.Find("Instrument");
+                    if (inst == null) continue;
+                    total++;
+                    Transform model = inst.Find("Model");
+                    if (model != null) withModel++;
+                    if (model != null && (model.lossyScale - Vector3.one).magnitude > 1e-3f) badScale++;
+                    if (inst.GetComponent<MeshRenderer>() != null) primitive++;
+                }
+                bool ok = total > 0 && withModel == total && primitive == 0 && badScale == 0;
+                sb.AppendLine((ok ? "Instruments OK : " : "PROBLEME instruments : ") + n + " : " + withModel + "/" + total + " Instrument avec Model (" + MaestroGreybox.InstrumentProp[n] + "), " + primitive + " primitive(s) restante(s), " + badScale + " échelle(s) ≠ 1");
+                if (!ok) problems++;
+            }
+
+            GameObject env = Find(roots, "Environment");
+            if (env != null)
+            {
+                Transform lustre = env.transform.Find("OperaShell/Lustre");
+                var removedLustre = new List<string> { "Plateau", "Coeur" };
+                for (int i = 1; i <= 12; i++) removedLustre.Add("Perle_" + i);
+                problems += CheckModel(sb, lustre, "OperaShell/Lustre", removedLustre.ToArray(), b => Mathf.Abs(b.size.y - 2.53f) < 0.05f && b.max.y < 0.05f, "2.5 m de haut, pend sous le pivot (anneau d'accroche ≤ 5 cm au-dessus)");
+                if (lustre != null)
+                {
+                    bool posOk = (lustre.localPosition - MaestroGreybox.LustrePos).magnitude < 1e-3f && lustre.Find("Chaine") != null && lustre.Find("Lustre_Light") != null;
+                    sb.AppendLine((posOk ? "Lustre OK : " : "PROBLEME Lustre : ") + "point d'accroche local " + lustre.localPosition.ToString("F2") + " (attendu " + MaestroGreybox.LustrePos.ToString("F2") + "), chaîne conservée=" + (lustre.Find("Chaine") != null) + ", Lustre_Light local " + (lustre.Find("Lustre_Light") != null ? lustre.Find("Lustre_Light").localPosition.ToString("F2") : "absente"));
+                    if (!posOk) problems++;
+                }
+                Transform castle = env.transform.Find("CastleShell");
+                if (castle != null)
+                {
+                    int torches = 0, torchOk = 0;
+                    foreach (Transform t in castle)
+                    {
+                        if (!t.name.StartsWith("Torch_")) continue;
+                        torches++;
+                        Transform tm = t.Find("Model");
+                        if (tm != null && (tm.lossyScale - Vector3.one).magnitude < 1e-3f && t.Find("Manche") == null && t.Find("Flamme") == null && t.Find("Torch_Light") != null) torchOk++;
+                    }
+                    sb.AppendLine((torches == 10 && torchOk == 10 ? "Torches OK : " : "PROBLEME torches : ") + torchOk + "/" + torches + " torches murales avec Model, sans primitives, Torch_Light conservée (attendu 10)");
+                    if (!(torches == 10 && torchOk == 10)) problems++;
+                    int banners = 0, bannerOk = 0;
+                    var colors = new List<string>();
+                    for (int i = 1; i <= 4; i++)
+                    {
+                        Transform b = castle.Find("Banniere_" + i);
+                        if (b == null) continue;
+                        banners++;
+                        Transform model = b.Find("Model");
+                        Renderer r = model != null ? model.GetComponent<Renderer>() : null;
+                        string velvet = "?";
+                        if (r != null) foreach (Material m in r.sharedMaterials) if (m != null && m.name.StartsWith("M_Banniere_Velours")) velvet = m.name.Replace("M_Banniere_Velours", "");
+                        colors.Add(velvet);
+                        bool expectBlue = i % 2 == 0;
+                        bool scaleOk = model != null && (model.lossyScale - Vector3.one).magnitude < 1e-3f;
+                        bool heightOk = model != null && Mathf.Abs(MaestroGreybox.ModelBounds(b, model.gameObject).size.y - 6.1f) < 0.1f && Mathf.Abs(model.position.y - 17f) < 0.01f + Mathf.Abs(castle.localPosition.y);
+                        if (model != null && b.GetComponent<MeshRenderer>() == null && velvet == (expectBlue ? "Bleu" : "Rouge") && scaleOk && heightOk) bannerOk++;
+                        else if (model != null && (!scaleOk || !heightOk)) sb.AppendLine("  PROBLEME: Banniere_" + i + " échelle monde " + model.lossyScale.ToString("F2") + ", bornes " + MaestroGreybox.ModelBounds(b, model.gameObject).size.ToString("F2") + " (attendu échelle 1, 6.1 m de haut)");
+                    }
+                    sb.AppendLine((banners == 4 && bannerOk == 4 ? "Bannières OK : " : "PROBLEME bannières : ") + bannerOk + "/" + banners + " avec Model (échelle 1, 6.1 m, hampe à y = 17 local), sans cube, velours " + string.Join("/", colors) + " (attendu Rouge/Bleu/Rouge/Bleu)");
+                    if (!(banners == 4 && bannerOk == 4)) problems++;
+                }
+            }
+
+            problems += CheckModelMaterials(sb, roots);
+
+            // Caméra du rig : Post Processing coché sur l'instance
+            GameObject rig = Find(roots, MaestroGreybox.RigName);
+            Transform camT = rig != null ? rig.transform.Find("Camera Offset/Main Camera") : null;
+            Camera cam = camT != null ? camT.GetComponent<Camera>() : null;
+            bool pp = cam != null && cam.GetUniversalAdditionalCameraData().renderPostProcessing;
+            sb.AppendLine((pp ? "Rig OK : " : "PROBLEME rig : ") + "Post Processing " + (pp ? "coché" : "non coché") + " sur Camera Offset/Main Camera");
+            if (!pp) problems++;
+
+            // Coupole : Anim_ToRave finit à l'échelle 0, Anim_ToOpera repart de 0
+            var toRave = AssetDatabase.LoadAssetAtPath<AnimationClip>(MaestroGreybox.AnimDir + "/Anim_ToRave.anim");
+            var toOpera = AssetDatabase.LoadAssetAtPath<AnimationClip>(MaestroGreybox.AnimDir + "/Anim_ToOpera.anim");
+            EditorCurveBinding domeScale = EditorCurveBinding.FloatCurve("OperaShell/Dome", typeof(Transform), "localScale.x");
+            AnimationCurve cr = toRave != null ? AnimationUtility.GetEditorCurve(toRave, domeScale) : null;
+            AnimationCurve co = toOpera != null ? AnimationUtility.GetEditorCurve(toOpera, domeScale) : null;
+            bool domeOk = cr != null && co != null && cr.keys.Length > 0 && co.keys.Length > 0 && Mathf.Abs(cr.keys[cr.keys.Length - 1].value) < 1e-4f && Mathf.Abs(co.keys[0].value) < 1e-4f;
+            sb.AppendLine((domeOk ? "Coupole OK : " : "PROBLEME coupole : ") + "Anim_ToRave finit à l'échelle " + (cr != null && cr.keys.Length > 0 ? cr.keys[cr.keys.Length - 1].value.ToString("F2") : "?") + ", Anim_ToOpera repart de " + (co != null && co.keys.Length > 0 ? co.keys[0].value.ToString("F2") : "?") + " (attendu 0 / 0)");
+            if (!domeOk) problems++;
+            return problems;
+        }
+
+        /// <summary>Tous les renderers sous un enfant « Model » : matériau non nul, shader URP/Lit, asset dans Materials/Props, _BaseMap présente quand le README en prévoit une.</summary>
+        static int CheckModelMaterials(StringBuilder sb, GameObject[] roots)
+        {
+            var issues = new HashSet<string>();
+            int renderers = 0, slots = 0;
+            string[] scan = { "Baguette", "SocleBaguette", "Pupitre", "Speakers", "Strings", "Vent", "Brass", "Percution", "Environment" };
+            foreach (string name in scan)
+            {
+                GameObject go = Find(roots, name);
+                if (go == null) continue;
+                foreach (Transform t in go.GetComponentsInChildren<Transform>(true))
+                {
+                    if (t.name != "Model") continue;
+                    foreach (Renderer r in t.GetComponentsInChildren<Renderer>(true))
+                    {
+                        renderers++;
+                        foreach (Material m in r.sharedMaterials)
+                        {
+                            slots++;
+                            string where = name + "/" + r.name;
+                            if (m == null) { issues.Add(where + " : matériau nul"); continue; }
+                            if (m.shader == null || m.shader.name != "Universal Render Pipeline/Lit") { issues.Add(where + " : " + m.name + " shader " + (m.shader != null ? m.shader.name : "null")); continue; }
+                            string path = AssetDatabase.GetAssetPath(m);
+                            if (!path.StartsWith(MaestroProps.PropMatDir)) { issues.Add(where + " : " + m.name + " hors de " + MaestroProps.PropMatDir + " (" + path + ")"); continue; }
+                            PropMaterialSpec spec = MaestroProps.FindSpec(m.name);
+                            if (spec == null) { issues.Add(where + " : " + m.name + " inconnu du README"); continue; }
+                            if (spec.BaseColor && m.GetTexture("_BaseMap") == null) issues.Add(where + " : " + m.name + " sans _BaseMap");
+                            if (spec.Normal && m.GetTexture("_BumpMap") == null) issues.Add(where + " : " + m.name + " sans _BumpMap");
+                            if (spec.Emissive && !m.IsKeywordEnabled("_EMISSION")) issues.Add(where + " : " + m.name + " sans émission");
+                        }
+                    }
+                }
+            }
+            foreach (string i in issues) sb.AppendLine("  PROBLEME: " + i);
+            sb.AppendLine((issues.Count == 0 ? "Matériaux des modèles OK : " : "PROBLEME matériaux des modèles : ") + renderers + " renderers, " + slots + " slots (shader URP/Lit, dossier Props, _BaseMap / _BumpMap / émission selon le README), " + issues.Count + " problème(s)");
+            return issues.Count;
         }
 
         struct Target
@@ -537,11 +747,13 @@ namespace Maestro.EditorTools
 
         public static void Capture(StringBuilder sb)
         {
-            CaptureView(sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(Dir, "v3-opera.png"));
-            // Spécifiée à (-25, 14, -20) : ce point est dans l'épaisseur du mur d'opéra (r = 32, plâtre double face → image unie).
-            // Reculée juste devant les balcons (r ≈ 26, entre les anneaux 2 et 3), même direction de regard.
-            Vector3 wide = new Vector3(-20f, 13f, -16.5f);
-            CaptureView(sb, wide, Quaternion.LookRotation(new Vector3(0f, 2f, 11f) - wide, Vector3.up), 60f, Path.Combine(Dir, "v3-opera-vue-large.png"));
+            CaptureView(sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(Dir, "v4-opera.png"));
+            // Gros plan de la baguette sur son socle : caméra à (0.3, 1.4, 0.6) regardant le socle
+            Vector3 socle = MaestroGreybox.SoclePosition();
+            GameObject socleGo = MaestroGreybox.FindRoot(SceneManager.GetActiveScene(), "SocleBaguette");
+            if (socleGo != null) socle = socleGo.transform.position;
+            Vector3 cam = new Vector3(0.3f, 1.4f, 0.6f);
+            CaptureView(sb, cam, Quaternion.LookRotation(socle + Vector3.up * 0.03f - cam, Vector3.up), 40f, Path.Combine(Dir, "v4-baguette.png"));
         }
 
         public static void CaptureView(StringBuilder sb, Vector3 position, Quaternion rotation, float fov, string outPath)

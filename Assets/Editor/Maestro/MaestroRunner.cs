@@ -97,6 +97,8 @@ namespace Maestro.EditorTools
                 switch (cmd)
                 {
                     case "build": MaestroGreybox.Build(sb); break;
+                    case "props": MaestroProps.ImportProps(sb); break;
+                    case "dress": MaestroGreybox.DressCommand(sb); break;
                     case "verify": MaestroVerify.Run(sb); break;
                     case "screenshot": MaestroScreenshot.Capture(sb); break;
                     case "save": MaestroGreybox.SaveAll(sb); break;
