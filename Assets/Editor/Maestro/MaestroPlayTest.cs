@@ -47,6 +47,28 @@ namespace Maestro.EditorTools
         static Transform _lasers;
         static float _minA, _maxA, _minB, _maxB;
         static int _samples;
+        static EditorWindow _gameView;
+        static bool _gameViewWasMaximized;
+
+        /// <summary>Game View maximisée pendant le test : les stats UnityStats ne comptent alors que la caméra du jeu (pas la Scene View).</summary>
+        static void MaximizeGameView(bool maximize)
+        {
+            try
+            {
+                if (_gameView == null)
+                {
+                    Type gvType = typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView");
+                    _gameView = EditorWindow.GetWindow(gvType, false, null, false);
+                    _gameViewWasMaximized = _gameView.maximized;
+                }
+                if (maximize) _gameView.maximized = true;
+                else _gameView.maximized = _gameViewWasMaximized;
+            }
+            catch (Exception e)
+            {
+                _sb.AppendLine("  (Game View non maximisée : " + e.Message + ")");
+            }
+        }
 
         [MenuItem("Tools/Maestro/Play Test Animations")]
         public static void PlayTestFromMenu()
@@ -129,6 +151,21 @@ namespace Maestro.EditorTools
             return "?";
         }
 
+        /// <summary>Statistiques de rendu de la Game View (UnityEditor.UnityStats, par réflexion) : dernière frame rendue.</summary>
+        static string RenderStats()
+        {
+            try
+            {
+                Type t = typeof(EditorWindow).Assembly.GetType("UnityEditor.UnityStats");
+                Func<string, object> get = name => t.GetProperty(name, System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic).GetValue(null, null);
+                return "Game View : triangles=" + Convert.ToInt64(get("triangles")).ToString("N0") + " vertices=" + Convert.ToInt64(get("vertices")).ToString("N0") + " batches=" + get("batches") + " drawCalls=" + get("drawCalls") + " setPass=" + get("setPassCalls");
+            }
+            catch (Exception e)
+            {
+                return "stats Game View indisponibles (" + e.Message + ")";
+            }
+        }
+
         static string Sample()
         {
             return "rave=" + _mood.rave.ToString("F3") + " opera.y=" + _opera.localPosition.y.ToString("F2") + " castle.y=" + _castle.localPosition.y.ToString("F2")
@@ -193,7 +230,7 @@ namespace Maestro.EditorTools
             _mood = envGo.GetComponent<EnvironmentMood>();
             _opera = envGo.transform.Find("OperaShell");
             _castle = envGo.transform.Find("CastleShell");
-            _dome = _opera != null ? _opera.Find("Dome") : null;
+            _dome = envGo.transform.Find(MaestroGreybox.DomePath);
             Transform lustreLight = _opera != null ? _opera.Find("Lustre/Lustre_Light") : null;
             _lustre = lustreLight != null ? lustreLight.GetComponent<Light>() : null;
             if (_env == null || _mood == null || _opera == null || _castle == null || _dome == null || _lustre == null || _mood.moonRenderer == null)
@@ -211,7 +248,7 @@ namespace Maestro.EditorTools
             _spkLast = spk.transform.Find("Speaker_" + spk.transform.childCount);
             int speakerModels = 0;
             foreach (Transform s in spk.transform) if (s.Find("Model") != null) speakerModels++;
-            _sb.AppendLine("Habillage : lustre modèle=" + (_lustreModel != null) + ", Torch_1 modèle=" + (_torch1 != null && _torch1.Find("Model") != null) + ", caissons avec modèle " + speakerModels + "/" + spk.transform.childCount);
+            _sb.AppendLine("Habillage : lustre modèle=" + (_lustreModel != null) + ", Torch_1 modèle=" + (_torch1 != null && _torch1.Find("Model") != null) + ", caissons avec modèle " + speakerModels + "/" + spk.transform.childCount + ", théâtre=" + (_opera.Find("Model") != null) + ", coupole animée=" + MaestroGreybox.DomePath);
 
             _musicians.Clear();
             foreach (string n in MaestroGreybox.SectionPrefabs)
@@ -255,8 +292,14 @@ namespace Maestro.EditorTools
                     case 0:
                         if (t < 0.5) return;
                         if (!Setup()) { Finish("FAIL", "cibles manquantes"); return; }
+                        MaximizeGameView(true);
+                        NextPhase(20);
+                        break;
+                    case 20:
+                        if (t < 1.0) return; // quelques frames rendues avec la Game View maximisée
                         _sb.AppendLine("=== Transition Opera → Rave → Reset ===");
                         _sb.AppendLine("  Avant : " + Sample());
+                        _sb.AppendLine("  Rendu mode opéra (Game View maximisée, caméra du rig), " + RenderStats());
                         _env.SetTrigger("Rave");
                         NextPhase(1);
                         break;
@@ -265,11 +308,13 @@ namespace Maestro.EditorTools
                         {
                             _captured3s = true;
                             _sb.AppendLine("  À 3 s : " + Sample());
+                            MaestroScreenshot.CaptureView(_sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v5-transition.png"));
                         }
                         if (t >= 7.0)
                         {
                             Expect("À 7 s", 1f, MaestroGreybox.OperaShellRaveY, 0f, 0f, 0.008f);
-                            Check(_dome.localScale.x < 1e-4f, "Coupole à 7 s : échelle " + _dome.localScale.ToString("F2") + " (attendu 0)");
+                            _sb.AppendLine("  Rendu mode rave (Game View maximisée, caméra du rig), " + RenderStats());
+                            Check(_dome.localScale.x < 1e-4f && Mathf.Abs(_dome.localPosition.y - (MaestroGreybox.DomeRestPos.y + MaestroGreybox.DomeRise)) < 0.05f, "Coupole à 7 s : échelle " + _dome.localScale.ToString("F2") + " y local " + _dome.localPosition.y.ToString("F1") + " (attendu 0 / " + (MaestroGreybox.DomeRestPos.y + MaestroGreybox.DomeRise) + ")");
                             if (_lustreModel != null)
                             {
                                 float expectedY = MaestroGreybox.LustrePos.y + MaestroGreybox.LustreRise + MaestroGreybox.OperaShellRaveY;
@@ -278,7 +323,7 @@ namespace Maestro.EditorTools
                             if (_torch1 != null)
                                 Check(Mathf.Abs(_torch1.position.y - _torch1.localPosition.y) < 0.05f, "Torch_1 à 7 s : y monde " + _torch1.position.y.ToString("F2") + " (remontée avec le château, attendu " + _torch1.localPosition.y.ToString("F2") + ")");
                             SetSpots(true);
-                            MaestroScreenshot.CaptureView(_sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v4-rave.png"));
+                            MaestroScreenshot.CaptureView(_sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v5-rave.png"));
                             SetSpots(false);
                             _sb.AppendLine("  Spots allumés pour la capture puis réteints (" + SpotsOn() + " allumé(s))");
                             _env.SetTrigger("Reset");
@@ -289,7 +334,7 @@ namespace Maestro.EditorTools
                         if (t >= 7.0)
                         {
                             Expect("7 s après Reset", 0f, 0f, MaestroGreybox.CastleShellHiddenY, MaestroGreybox.LustreIntensity, 0f);
-                            Check(Mathf.Abs(_dome.localScale.x - MaestroGreybox.DomeScale.x) < 0.01f, "Coupole après Reset : échelle " + _dome.localScale.ToString("F1") + " (attendu " + MaestroGreybox.DomeScale.ToString("F1") + ")");
+                            Check((_dome.localScale - MaestroGreybox.DomeRestScale).magnitude < 0.01f && (_dome.localPosition - MaestroGreybox.DomeRestPos).magnitude < 0.05f, "Coupole après Reset : échelle " + _dome.localScale.ToString("F1") + " position " + _dome.localPosition.ToString("F1") + " (attendu " + MaestroGreybox.DomeRestScale.ToString("F1") + " / " + MaestroGreybox.DomeRestPos.ToString("F1") + ")");
                             NextPhase(3);
                         }
                         break;
@@ -418,6 +463,7 @@ namespace Maestro.EditorTools
         static void Finish(string status, string note)
         {
             EditorApplication.update -= Update;
+            if (_gameView != null) MaximizeGameView(false);
             if (note != null) _sb.AppendLine(note);
             _sb.AppendLine(MaestroConsole.Summary());
             Debug.Log("[Maestro] PlayTest " + status + "\n" + _sb);

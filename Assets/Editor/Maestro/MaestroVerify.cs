@@ -151,7 +151,17 @@ namespace Maestro.EditorTools
                     switch (g)
                     {
                         case "Stage": ok = staticCount == total; note = staticCount + "/" + total + " objets Static"; break;
-                        case "OperaShell": operaShell = gt; ok = gt.localPosition.sqrMagnitude < 1e-6f && staticCount == 0; note = "local " + gt.localPosition.ToString("F2") + " (attendu 0), " + staticCount + " Static (attendu 0), " + total + " objets"; break;
+                        case "OperaShell":
+                            {
+                                operaShell = gt;
+                                // Le groupe bouge au Rave : aucun objet ne doit être en Batching Static ni ContributeGI (les autres flags Static du théâtre sont tolérés)
+                                int batching = 0;
+                                foreach (Transform c in gt.GetComponentsInChildren<Transform>(true))
+                                    if ((GameObjectUtility.GetStaticEditorFlags(c.gameObject) & (StaticEditorFlags.BatchingStatic | StaticEditorFlags.ContributeGI)) != 0) batching++;
+                                ok = gt.localPosition.sqrMagnitude < 1e-6f && batching == 0;
+                                note = "local " + gt.localPosition.ToString("F2") + " (attendu 0), " + batching + " objet(s) en Batching Static / ContributeGI (attendu 0), " + staticCount + " avec d'autres flags Static, " + total + " objets";
+                                break;
+                            }
                         case "CastleShell": castleShell = gt; ok = (gt.localPosition - new Vector3(0f, MaestroGreybox.CastleShellHiddenY, 0f)).magnitude < 1e-4f && staticCount == 0; note = "local " + gt.localPosition.ToString("F2") + " (attendu (0, " + MaestroGreybox.CastleShellHiddenY + ", 0)), " + staticCount + " Static (attendu 0)"; break;
                         default:
                             {
@@ -298,9 +308,20 @@ namespace Maestro.EditorTools
             // ---------------------------------------------------------------- 6 bis. Habillage par les props Blender (v4)
             problems += CheckDressing(sb, roots);
 
-            // ---------------------------------------------------------------- 7. Visibilité mode opéra (état sauvegardé)
-            sb.AppendLine("--- Visibilité mode opéra (OperaShell à 0, CastleShell enterrée) ---");
-            problems += CheckVisibility(sb, roots, false);
+            // ---------------------------------------------------------------- 6 ter + 7. Théâtre (v5), visibilité mode opéra et estimation de rendu,
+            // avec des MeshColliders temporaires sur le théâtre (le FBX est importé sans colliders)
+            List<MeshCollider> temp = AddTheatreColliders(roots);
+            try
+            {
+                problems += CheckTheatre(sb, roots);
+                sb.AppendLine("--- Visibilité mode opéra (OperaShell à 0, CastleShell enterrée) ---");
+                problems += CheckVisibility(sb, roots, false);
+                EstimateRendering(sb);
+            }
+            finally
+            {
+                RemoveColliders(temp);
+            }
 
             // ---------------------------------------------------------------- 8. Visibilité mode rave (coques déplacées temporairement)
             if (operaShell != null && castleShell != null)
@@ -562,7 +583,7 @@ namespace Maestro.EditorTools
             // Coupole : Anim_ToRave finit à l'échelle 0, Anim_ToOpera repart de 0
             var toRave = AssetDatabase.LoadAssetAtPath<AnimationClip>(MaestroGreybox.AnimDir + "/Anim_ToRave.anim");
             var toOpera = AssetDatabase.LoadAssetAtPath<AnimationClip>(MaestroGreybox.AnimDir + "/Anim_ToOpera.anim");
-            EditorCurveBinding domeScale = EditorCurveBinding.FloatCurve("OperaShell/Dome", typeof(Transform), "localScale.x");
+            EditorCurveBinding domeScale = EditorCurveBinding.FloatCurve(MaestroGreybox.DomePath, typeof(Transform), "localScale.x");
             AnimationCurve cr = toRave != null ? AnimationUtility.GetEditorCurve(toRave, domeScale) : null;
             AnimationCurve co = toOpera != null ? AnimationUtility.GetEditorCurve(toOpera, domeScale) : null;
             bool domeOk = cr != null && co != null && cr.keys.Length > 0 && co.keys.Length > 0 && Mathf.Abs(cr.keys[cr.keys.Length - 1].value) < 1e-4f && Mathf.Abs(co.keys[0].value) < 1e-4f;
@@ -594,7 +615,7 @@ namespace Maestro.EditorTools
                             if (m == null) { issues.Add(where + " : matériau nul"); continue; }
                             if (m.shader == null || m.shader.name != "Universal Render Pipeline/Lit") { issues.Add(where + " : " + m.name + " shader " + (m.shader != null ? m.shader.name : "null")); continue; }
                             string path = AssetDatabase.GetAssetPath(m);
-                            if (!path.StartsWith(MaestroProps.PropMatDir)) { issues.Add(where + " : " + m.name + " hors de " + MaestroProps.PropMatDir + " (" + path + ")"); continue; }
+                            if (!path.StartsWith(MaestroProps.PropMatDir) && !path.StartsWith(MaestroProps.TheatreMatDir)) { issues.Add(where + " : " + m.name + " hors de " + MaestroProps.PropMatDir + " / " + MaestroProps.TheatreMatDir + " (" + path + ")"); continue; }
                             PropMaterialSpec spec = MaestroProps.FindSpec(m.name);
                             if (spec == null) { issues.Add(where + " : " + m.name + " inconnu du README"); continue; }
                             if (spec.BaseColor && m.GetTexture("_BaseMap") == null) issues.Add(where + " : " + m.name + " sans _BaseMap");
@@ -607,6 +628,243 @@ namespace Maestro.EditorTools
             foreach (string i in issues) sb.AppendLine("  PROBLEME: " + i);
             sb.AppendLine((issues.Count == 0 ? "Matériaux des modèles OK : " : "PROBLEME matériaux des modèles : ") + renderers + " renderers, " + slots + " slots (shader URP/Lit, dossier Props, _BaseMap / _BumpMap / émission selon le README), " + issues.Count + " problème(s)");
             return issues.Count;
+        }
+
+        // ---------------------------------------------------------------- théâtre v5
+
+        static Transform TheatreModel(GameObject[] roots)
+        {
+            GameObject env = Find(roots, "Environment");
+            return env != null ? env.transform.Find("OperaShell/Model") : null;
+        }
+
+        /// <summary>MeshColliders temporaires sur les objets du théâtre (hors fauteuils) pour les tests de ligne de vue.</summary>
+        static List<MeshCollider> AddTheatreColliders(GameObject[] roots)
+        {
+            var list = new List<MeshCollider>();
+            Transform model = TheatreModel(roots);
+            if (model == null) return list;
+            foreach (Transform c in model.GetComponentsInChildren<Transform>(true))
+            {
+                if (c.name == "Seats" || c.name.StartsWith("Seat.")) continue;
+                MeshFilter mf = c.GetComponent<MeshFilter>();
+                if (mf == null || mf.sharedMesh == null || c.GetComponent<Collider>() != null) continue;
+                MeshCollider mc = c.gameObject.AddComponent<MeshCollider>();
+                mc.hideFlags = HideFlags.DontSave;
+                list.Add(mc);
+            }
+            Physics.SyncTransforms();
+            return list;
+        }
+
+        static void RemoveColliders(List<MeshCollider> list)
+        {
+            foreach (MeshCollider mc in list) if (mc != null) UnityEngine.Object.DestroyImmediate(mc);
+            Physics.SyncTransforms();
+        }
+
+        /// <summary>Premier impact sur le théâtre le long du rayon (triggers ignorés), null sinon.</summary>
+        static RaycastHit? RayTheatre(Transform model, Vector3 origin, Vector3 dir, float dist)
+        {
+            RaycastHit[] hits = Physics.RaycastAll(origin, dir.normalized, dist, ~0, QueryTriggerInteraction.Ignore);
+            Array.Sort(hits, (x, y) => x.distance.CompareTo(y.distance));
+            foreach (RaycastHit h in hits) if (h.transform.IsChildOf(model)) return h;
+            return null;
+        }
+
+        static int CheckTheatre(StringBuilder sb, GameObject[] roots)
+        {
+            if (!MaestroGreybox.TheatreAvailable) { sb.AppendLine("Théâtre : Theatre.fbx non importé, coque opéra greybox conservée"); return 0; }
+            int problems = 0;
+            sb.AppendLine("--- Théâtre à l'italienne (Theatre.fbx) ---");
+            GameObject env = Find(roots, "Environment");
+            Transform opera = env != null ? env.transform.Find("OperaShell") : null;
+            if (opera == null) { sb.AppendLine("PROBLEME: OperaShell introuvable"); return 1; }
+            Transform model = opera.Find("Model");
+            if (model == null) { sb.AppendLine("PROBLEME: OperaShell sans enfant Model (théâtre non posé)"); return 1; }
+
+            bool poseOk = model.localPosition.magnitude < 1e-4f && Quaternion.Angle(model.localRotation, Quaternion.Euler(MaestroGreybox.TheatreModelEuler)) < 0.05f && (model.lossyScale - Vector3.one).magnitude < 1e-3f;
+            var missing = new List<string>();
+            foreach (string o in MaestroProps.TheatreObjects) if (model.Find(o) == null) missing.Add(o);
+            Transform seats = model.Find("Seats");
+            int seatCount = seats != null ? seats.childCount : 0;
+            Transform dome = model.Find("Ceiling/Dome");
+            bool objectsOk = missing.Count == 0 && seatCount == MaestroProps.TheatreSeatCount && dome != null;
+            sb.AppendLine((poseOk && objectsOk ? "Theatre OK : " : "PROBLEME Theatre : ") + "Model local " + model.localPosition.ToString("F2") + " rot " + model.localEulerAngles.ToString("F0") + " (attendu 0 / (0, 180, 0)), objets " + (MaestroProps.TheatreObjects.Length - missing.Count) + "/" + MaestroProps.TheatreObjects.Length + (missing.Count > 0 ? " manquants : " + string.Join(", ", missing) : "") + ", fauteuils " + seatCount + " (attendu " + MaestroProps.TheatreSeatCount + "), Dome sous Ceiling=" + (dome != null));
+            if (!(poseOk && objectsOk)) problems++;
+
+            var left = new List<string>();
+            foreach (string g in MaestroGreybox.OperaGreyboxToRemove) if (opera.Find(g) != null) left.Add(g);
+            sb.AppendLine((left.Count == 0 ? "Coque greybox OK : " : "PROBLEME coque greybox : ") + (left.Count == 0 ? "sol, murs, balcons, sphère, corniche, cadre de scène primitifs supprimés" : "restent " + string.Join(", ", left)));
+            if (left.Count > 0) problems++;
+
+            // Coupole animée : les clips visent le Dome du modèle (fresque), échelle 1 → 0, +80 m
+            Transform animated = env.transform.Find(MaestroGreybox.DomePath);
+            Renderer dr = animated != null ? animated.GetComponent<Renderer>() : null;
+            bool fresco = dr != null && Array.Exists(dr.sharedMaterials, m => m != null && m.name == "M_Theatre_Fresco");
+            var toRave = AssetDatabase.LoadAssetAtPath<AnimationClip>(MaestroGreybox.AnimDir + "/Anim_ToRave.anim");
+            AnimationCurve sc = toRave != null ? AnimationUtility.GetEditorCurve(toRave, EditorCurveBinding.FloatCurve(MaestroGreybox.DomePath, typeof(Transform), "localScale.x")) : null;
+            AnimationCurve py = toRave != null ? AnimationUtility.GetEditorCurve(toRave, EditorCurveBinding.FloatCurve(MaestroGreybox.DomePath, typeof(Transform), "localPosition.y")) : null;
+            bool domeOk = animated != null && animated == dome && fresco && sc != null && py != null && Mathf.Abs(sc.keys[sc.keys.Length - 1].value) < 1e-4f && Mathf.Abs(py.keys[py.keys.Length - 1].value - (MaestroGreybox.DomeRestPos.y + MaestroGreybox.DomeRise)) < 1e-3f && dome.localScale == Vector3.one;
+            sb.AppendLine((domeOk ? "Coupole animée OK : " : "PROBLEME coupole animée : ") + MaestroGreybox.DomePath + " → " + (animated != null ? "objet trouvé (fresque=" + fresco + ")" : "objet introuvable") + ", Anim_ToRave échelle finale " + (sc != null ? sc.keys[sc.keys.Length - 1].value.ToString("F2") : "?") + " et y final " + (py != null ? py.keys[py.keys.Length - 1].value.ToString("F0") : "?") + " (attendu 0 / " + (MaestroGreybox.DomeRestPos.y + MaestroGreybox.DomeRise) + ")");
+            if (!domeOk) problems++;
+
+            // Sols remontés, flags Static
+            int lifted = 0;
+            foreach (string name in MaestroGreybox.TheatreLiftedObjects)
+            {
+                Transform f = model.Find(name);
+                if (f != null && Mathf.Abs(f.localPosition.y - MaestroGreybox.TheatreFloorLift) < 1e-4f) lifted++;
+            }
+            int total = 0, wrong = 0;
+            foreach (Transform t in model.GetComponentsInChildren<Transform>(true))
+            {
+                bool isDome = dome != null && (t == dome || t.IsChildOf(dome));
+                StaticEditorFlags want = isDome ? 0 : MaestroGreybox.TheatreStaticFlags;
+                total++;
+                if (GameObjectUtility.GetStaticEditorFlags(t.gameObject) != want) wrong++;
+            }
+            bool flagsOk = lifted == MaestroGreybox.TheatreLiftedObjects.Length && wrong == 0;
+            sb.AppendLine((flagsOk ? "Static OK : " : "PROBLEME Static : ") + (total - wrong) + "/" + total + " objets avec les flags attendus (occluder/occludee/reflection sans Batching ni ContributeGI, Dome sans flag), " + lifted + "/" + MaestroGreybox.TheatreLiftedObjects.Length + " sols remontés de " + (MaestroGreybox.TheatreFloorLift * 100f) + " cm");
+            if (!flagsOk) problems++;
+
+            // Lumières d'opéra : 6 points aux galeries 2 et 3, 2 spots d'avant-scène ; lustre à son point d'accroche
+            Transform lum = opera.Find("Lumieres_Opera");
+            int pointsOk = 0, spots = 0;
+            if (lum != null)
+            {
+                for (int i = 0; i < MaestroGreybox.TheatreOperaLightPos.Length; i++)
+                {
+                    Transform l = lum.Find("Opera_Light_" + (i + 1));
+                    if (l != null && l.GetComponent<Light>() != null && l.GetComponent<Light>().type == LightType.Point && (l.localPosition - MaestroGreybox.TheatreOperaLightPos[i]).magnitude < 1e-3f) pointsOk++;
+                }
+                foreach (Light l in lum.GetComponentsInChildren<Light>(true)) if (l.type == LightType.Spot) spots++;
+            }
+            Transform lustre = opera.Find("Lustre");
+            bool lustreOk = lustre != null && (lustre.localPosition - MaestroGreybox.LustrePos).magnitude < 1e-3f && lustre.Find("Model") != null && lustre.Find("Lustre_Light") != null;
+            bool lightsOk = pointsOk == 6 && spots == 2 && lustreOk;
+            sb.AppendLine((lightsOk ? "Lumières OK : " : "PROBLEME lumières : ") + pointsOk + "/6 Point Lights de balcon aux galeries (±17 / fond, y 9.5 et 14), " + spots + " spot(s) d'avant-scène (attendu 2), lustre " + (lustreOk ? "au point d'accroche " + MaestroGreybox.LustrePos.ToString("F0") + " avec sa Point Light" : "incorrect"));
+            if (!lightsOk) problems++;
+
+            // Matériaux du théâtre
+            var issues = new List<string>();
+            foreach (PropMaterialSpec s in MaestroProps.TheatreSpecs)
+            {
+                Material m = AssetDatabase.LoadAssetAtPath<Material>(MaestroProps.MaterialPath(s.Name));
+                if (m == null) { issues.Add(s.Name + " manquant"); continue; }
+                bool both = Array.IndexOf(MaestroProps.TheatreDoubleSided, s.Name) >= 0;
+                if (m.shader == null || m.shader.name != "Universal Render Pipeline/Lit") issues.Add(s.Name + " shader " + (m.shader != null ? m.shader.name : "null"));
+                if (m.GetTexture("_BaseMap") == null) issues.Add(s.Name + " sans _BaseMap");
+                if (m.GetTexture("_BumpMap") == null) issues.Add(s.Name + " sans _BumpMap");
+                if (!m.enableInstancing) issues.Add(s.Name + " sans GPU Instancing");
+                if (Mathf.RoundToInt(m.GetFloat("_Cull")) != (both ? (int)CullMode.Off : (int)CullMode.Back)) issues.Add(s.Name + " Render Face incorrect (attendu " + (both ? "Both" : "Front") + ")");
+            }
+            int embedded = 0;
+            foreach (UnityEngine.Object o in AssetDatabase.LoadAllAssetsAtPath(MaestroProps.FbxPath(MaestroProps.TheatreName))) if (o is Material) embedded++;
+            if (embedded > 0) issues.Add(embedded + " matériau(x) incorporé(s) dans Theatre.fbx");
+            foreach (string i in issues) sb.AppendLine("  PROBLEME: " + i);
+            sb.AppendLine((issues.Count == 0 ? "Matériaux théâtre OK : " : "PROBLEME matériaux théâtre : ") + MaestroProps.TheatreSpecs.Length + " matériaux (URP/Lit, BaseMap + Normal, GPU Instancing, double face velours / fresque), " + issues.Count + " problème(s)");
+            problems += issues.Count;
+
+            // Géométrie dans la scène (colliders temporaires) : colonnes à x = ±15.5, z = 7 (rayon 1.25), ouverture libre entre x = ±14, salle derrière le joueur
+            RaycastHit? cl = RayTheatre(model, new Vector3(-15.5f, 5f, 0f), Vector3.forward, 20f);
+            RaycastHit? cr = RayTheatre(model, new Vector3(15.5f, 5f, 0f), Vector3.forward, 20f);
+            RaycastHit? ct = RayTheatre(model, new Vector3(-15.5f, 16.5f, 0f), Vector3.forward, 20f);
+            // Ouverture : rien du théâtre entre le podium et l'orchestre (axe central, puis vers les musiciens extrêmes des vents et des cuivres)
+            Vector3 eyeP = new Vector3(0f, 1.6f, 0f);
+            RaycastHit? open = RayTheatre(model, new Vector3(0f, 5f, 0f), Vector3.forward, 40f);
+            RaycastHit? open2 = RayTheatre(model, eyeP, new Vector3(-7.25f, 2.85f, 11f) - eyeP, 40f);
+            RaycastHit? open3 = RayTheatre(model, eyeP, new Vector3(7.25f, 2.85f, 11f) - eyeP, 40f);
+            Func<RaycastHit?, bool> isColumn = h => h.HasValue && h.Value.transform.name == "Proscenium" && Mathf.Abs(h.Value.point.z - 5.75f) < 0.4f;
+            Func<RaycastHit?, bool> clearTo10 = h => !h.HasValue || h.Value.point.z > 10f;
+            bool openOk = (!open.HasValue || open.Value.point.z > 13f) && clearTo10(open2) && clearTo10(open3);
+            Transform galleries = model.Find("Galleries");
+            Renderer gr = galleries != null ? galleries.GetComponent<Renderer>() : null;
+            bool behind = gr != null && gr.bounds.center.z < 0f && gr.bounds.max.z < 4f && seats != null && seats.childCount > 0 && seats.GetChild(0).position.z < 0f;
+            bool geomOk = isColumn(cl) && isColumn(cr) && isColumn(ct) && openOk && behind;
+            sb.AppendLine((geomOk ? "Géométrie OK : " : "PROBLEME géométrie : ") + "colonne gauche " + (cl.HasValue ? cl.Value.transform.name + " @ z " + cl.Value.point.z.ToString("F2") : "non touchée") + ", droite " + (cr.HasValue ? "z " + cr.Value.point.z.ToString("F2") : "non touchée") + ", haut (y 16.5) " + (ct.HasValue ? "z " + ct.Value.point.z.ToString("F2") : "non touché") + " (attendu Proscenium à z ≈ 5.75) ; ouverture : axe (0, 5) → " + (open.HasValue ? open.Value.transform.name + " z " + open.Value.point.z.ToString("F1") : "aucun") + " (attendu > 13), vers les vents / cuivres extrêmes → " + (open2.HasValue ? open2.Value.transform.name + " z " + open2.Value.point.z.ToString("F1") : "aucun") + " / " + (open3.HasValue ? open3.Value.transform.name + " z " + open3.Value.point.z.ToString("F1") : "aucun") + " (attendu > 10) ; galeries " + (gr != null ? "z " + gr.bounds.min.z.ToString("F1") + " → " + gr.bounds.max.z.ToString("F1") : "?") + " et fauteuils derrière le joueur=" + behind);
+            if (!geomOk) problems++;
+            return problems;
+        }
+
+        static Plane[] FrustumPlanes(Vector3 eye, Quaternion rot, float fov, float aspect, out Camera cam)
+        {
+            var go = new GameObject("Maestro_FrustumCamera");
+            go.hideFlags = HideFlags.HideAndDontSave;
+            cam = go.AddComponent<Camera>();
+            cam.enabled = false;
+            cam.transform.SetPositionAndRotation(eye, rot);
+            cam.fieldOfView = fov;
+            cam.aspect = aspect;
+            cam.nearClipPlane = 0.05f;
+            cam.farClipPlane = 400f;
+            return GeometryUtility.CalculateFrustumPlanes(cam);
+        }
+
+        /// <summary>Vue vers la salle (regard -Z) : galeries et fauteuils dans le champ ; vue vers le haut : coupole (fresque) dans le champ, rayon libre.</summary>
+        static int CheckTheatreViews(StringBuilder sb, Vector3 eye, Transform model)
+        {
+            int problems = 0;
+            Camera cam;
+            Plane[] back = FrustumPlanes(eye, Quaternion.Euler(0f, 180f, 0f), FovV, Aspect, out cam);
+            try
+            {
+                Transform galleries = model.Find("Galleries");
+                Renderer gr = galleries != null ? galleries.GetComponent<Renderer>() : null;
+                bool galleriesIn = gr != null && GeometryUtility.TestPlanesAABB(back, gr.bounds);
+                int seatsIn = 0;
+                Transform seats = model.Find("Seats");
+                if (seats != null) foreach (Transform s in seats) { Renderer r = s.GetComponent<Renderer>(); if (r != null && GeometryUtility.TestPlanesAABB(back, r.bounds)) seatsIn++; }
+                RaycastHit? h = RayTheatre(model, eye, new Vector3(0f, 8f, -23f) - eye, 40f);
+                bool ok = galleriesIn && seatsIn > 0 && h.HasValue && (h.Value.transform.name == "Galleries" || h.Value.transform.name == "OuterWalls");
+                sb.AppendLine((ok ? "  Salle (regard -Z) OK : " : "  PROBLEME salle (regard -Z) : ") + "galeries dans le champ=" + galleriesIn + ", fauteuils dans le champ=" + seatsIn + ", rayon vers la galerie du fond → " + (h.HasValue ? h.Value.transform.name + " @ " + h.Value.point.ToString("F1") : "rien"));
+                if (!ok) problems++;
+            }
+            finally { UnityEngine.Object.DestroyImmediate(cam.gameObject); }
+
+            Plane[] up = FrustumPlanes(eye, Quaternion.Euler(-90f, 0f, 0f), FovV, Aspect, out cam);
+            try
+            {
+                Transform dome = model.Find("Ceiling/Dome");
+                Renderer dr = dome != null ? dome.GetComponent<Renderer>() : null;
+                bool domeIn = dr != null && GeometryUtility.TestPlanesAABB(up, dr.bounds);
+                RaycastHit? h = RayTheatre(model, eye, Vector3.up, 60f);
+                bool ok = domeIn && h.HasValue && h.Value.transform.name == "Dome";
+                sb.AppendLine((ok ? "  Plafond (regard vers le haut) OK : " : "  PROBLEME plafond : ") + "coupole dans le champ=" + domeIn + ", rayon vertical → " + (h.HasValue ? h.Value.transform.name + " (fresque) @ y " + h.Value.point.y.ToString("F1") : "rien") + " (attendu Dome à y ≈ 29.8)");
+                if (!ok) problems++;
+            }
+            finally { UnityEngine.Object.DestroyImmediate(cam.gameObject); }
+            return problems;
+        }
+
+        /// <summary>Estimation du rendu depuis le podium (mode opéra) : renderers actifs dont les bornes coupent le frustum, triangles, batches avec instancing des fauteuils.</summary>
+        static void EstimateRendering(StringBuilder sb)
+        {
+            Vector3 eye = new Vector3(0f, 1.6f, 0f);
+            sb.AppendLine("--- Estimation de rendu depuis (0, 1.6, 0) regard +Z, mode opéra (objectifs Quest 3 : < 350 000 triangles, < 150 batches) ---");
+            Renderer[] all = UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            foreach (var view in new[] { new { fov = 65f, aspect = 16f / 9f, label = "FOV 65° 16:9" }, new { fov = 110f, aspect = 1f, label = "FOV 110° 1:1 (ordre de grandeur casque)" } })
+            {
+                Camera cam;
+                Plane[] planes = FrustumPlanes(eye, Quaternion.identity, view.fov, view.aspect, out cam);
+                try
+                {
+                    long tris = 0;
+                    int visible = 0, seats = 0, draws = 0;
+                    foreach (Renderer r in all)
+                    {
+                        if (!r.enabled || !r.gameObject.activeInHierarchy || !GeometryUtility.TestPlanesAABB(planes, r.bounds)) continue;
+                        visible++;
+                        MeshFilter mf = r.GetComponent<MeshFilter>();
+                        if (mf != null && mf.sharedMesh != null) tris += mf.sharedMesh.triangles.Length / 3;
+                        if (r.name.StartsWith("Seat.")) seats++;
+                        else draws += Mathf.Max(1, r.sharedMaterials.Length);
+                    }
+                    int batches = draws + (seats > 0 ? Mathf.CeilToInt(seats / 1023f) : 0);
+                    sb.AppendLine("  " + view.label + " : " + visible + " renderers dans le frustum (dont " + seats + " fauteuils instanciés), " + tris.ToString("N0") + " triangles, ≈ " + batches + " batches (" + draws + " sous-meshes + " + (seats > 0 ? Mathf.CeilToInt(seats / 1023f) : 0) + " lot(s) de fauteuils)" + (tris < 350000 && batches < 150 ? " → objectifs tenus" : " → OBJECTIF DÉPASSÉ"));
+                }
+                finally { UnityEngine.Object.DestroyImmediate(cam.gameObject); }
+            }
         }
 
         struct Target
@@ -693,9 +951,19 @@ namespace Maestro.EditorTools
                 if (env != null)
                 {
                     Transform opera = env.transform.Find("OperaShell");
-                    Transform lintel = opera != null ? opera.Find("Proscenium/Linteau") : null;
                     Transform lustre = opera != null ? opera.Find("Lustre") : null;
-                    problems += LookUpCheck(sb, eye, "Proscenium/Linteau", lintel, 1.5f);
+                    Transform theatre = opera != null ? opera.Find("Model") : null;
+                    if (theatre != null)
+                    {
+                        // Cadre de scène du théâtre : entablement doré (0, 18.5, 7), le théâtre lui-même ne compte pas comme obstacle
+                        problems += LookUpCheck(sb, eye, "Theatre/Proscenium (entablement)", theatre, 1f, MaestroGreybox.TheatreEntablature);
+                        problems += CheckTheatreViews(sb, eye, theatre);
+                    }
+                    else
+                    {
+                        Transform lintel = opera != null ? opera.Find("Proscenium/Linteau") : null;
+                        problems += LookUpCheck(sb, eye, "Proscenium/Linteau", lintel, 1.5f);
+                    }
                     problems += LookUpCheck(sb, eye, "Lustre", lustre, 1.8f);
                 }
             }
@@ -719,10 +987,10 @@ namespace Maestro.EditorTools
             return problems;
         }
 
-        static int LookUpCheck(StringBuilder sb, Vector3 eye, string label, Transform target, float stopBefore)
+        static int LookUpCheck(StringBuilder sb, Vector3 eye, string label, Transform target, float stopBefore, Vector3? point = null)
         {
             if (target == null) { sb.AppendLine("  PROBLEME: " + label + " introuvable"); return 1; }
-            Vector3 p = target.position;
+            Vector3 p = point ?? target.position;
             float pitch = PitchToSee(eye, p);
             bool isEnv, isOpera;
             string blocker = Blocker(eye, p, target, stopBefore, out isEnv, out isOpera);
@@ -747,13 +1015,10 @@ namespace Maestro.EditorTools
 
         public static void Capture(StringBuilder sb)
         {
-            CaptureView(sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(Dir, "v4-opera.png"));
-            // Gros plan de la baguette sur son socle : caméra à (0.3, 1.4, 0.6) regardant le socle
-            Vector3 socle = MaestroGreybox.SoclePosition();
-            GameObject socleGo = MaestroGreybox.FindRoot(SceneManager.GetActiveScene(), "SocleBaguette");
-            if (socleGo != null) socle = socleGo.transform.position;
-            Vector3 cam = new Vector3(0.3f, 1.4f, 0.6f);
-            CaptureView(sb, cam, Quaternion.LookRotation(socle + Vector3.up * 0.03f - cam, Vector3.up), 40f, Path.Combine(Dir, "v4-baguette.png"));
+            Vector3 eye = new Vector3(0f, 1.6f, 0f);
+            CaptureView(sb, eye, Quaternion.identity, 65f, Path.Combine(Dir, "v5-opera-scene.png"));
+            CaptureView(sb, eye, Quaternion.Euler(0f, 180f, 0f), 65f, Path.Combine(Dir, "v5-opera-salle.png"));
+            CaptureView(sb, eye, Quaternion.Euler(-90f, 0f, 0f), 65f, Path.Combine(Dir, "v5-opera-plafond.png"));
         }
 
         public static void CaptureView(StringBuilder sb, Vector3 position, Quaternion rotation, float fov, string outPath)

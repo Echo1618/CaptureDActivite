@@ -94,14 +94,33 @@ namespace Maestro.EditorTools
             return new PropMaterialSpec { Prop = prop, Matiere = "Emissive", Emissive = true, EmissionColor = c, EmissionStrength = strength };
         }
 
+        // ----- Théâtre à l'italienne (passe 5) : un FBX multi-objets, six matériaux tuilables dans Art/Materials/Theatre/ -----
+        public const string TheatreName = "Theatre";
+        public const string TheatreMatDir = "Assets/_OrchestraRave/Art/Materials/Theatre";
+        public static readonly string[] TheatreObjects = { "Galleries", "OuterWalls", "Proscenium", "Curtains", "Ceiling", "Seats", "StageFloor", "Wings", "Backdrop" };
+        public const int TheatreSeatCount = 760;
+        public static readonly PropMaterialSpec[] TheatreSpecs =
+        {
+            Tex("Theatre", "Velvet", true, true, false, true),
+            Tex("Theatre", "Plaster", true, true, false, true),
+            Tex("Theatre", "Gold", true, true, true, true),
+            Tex("Theatre", "Wood", true, true, false, true),
+            Tex("Theatre", "Marble", true, true, false, true),
+            Tex("Theatre", "Fresco", true, true, false, true),
+        };
+        // Rideaux, toile de fond et coupole se voient des deux côtés : Render Face = Both sur leurs matériaux.
+        public static readonly string[] TheatreDoubleSided = { "M_Theatre_Velvet", "M_Theatre_Fresco" };
+
         public static string FbxPath(string prop) { return ModelsDir + "/" + prop + "/" + prop + ".fbx"; }
-        public static string MaterialPath(string name) { return PropMatDir + "/" + name + ".mat"; }
+        public static string MaterialPath(string name) { return (name.StartsWith("M_Theatre_") ? TheatreMatDir : PropMatDir) + "/" + name + ".mat"; }
+        public static bool IsTheatreMaterial(string name) { return name.StartsWith("M_Theatre_"); }
         public static GameObject LoadModel(string prop) { return AssetDatabase.LoadAssetAtPath<GameObject>(FbxPath(prop)); }
         public static bool Available(string prop) { return LoadModel(prop) != null; }
 
         public static PropMaterialSpec FindSpec(string materialName)
         {
             foreach (PropMaterialSpec s in Specs) if (s.Name == materialName) return s;
+            foreach (PropMaterialSpec s in TheatreSpecs) if (s.Name == materialName) return s;
             return null;
         }
 
@@ -124,6 +143,31 @@ namespace Maestro.EditorTools
             AssetDatabase.SaveAssets();
             sb.AppendLine(created + "/" + Specs.Length + " matériaux URP/Lit dans " + PropMatDir);
             foreach (string prop in PropNames) RemapModel(prop, sb, ref problems);
+
+            // Théâtre (passe 5) : six matériaux tuilables, GPU Instancing (760 fauteuils sur un mesh), double face velours / fresque
+            if (Available(TheatreName))
+            {
+                EnsureFolder(TheatreMatDir);
+                int tc = 0;
+                foreach (PropMaterialSpec s in TheatreSpecs)
+                {
+                    if (!CreateMaterial(s, sb, ref problems)) continue;
+                    Material m = AssetDatabase.LoadAssetAtPath<Material>(MaterialPath(s.Name));
+                    m.enableInstancing = true;
+                    bool both = Array.IndexOf(TheatreDoubleSided, s.Name) >= 0;
+                    m.SetFloat("_Cull", both ? (float)UnityEngine.Rendering.CullMode.Off : (float)UnityEngine.Rendering.CullMode.Back);
+                    m.doubleSidedGI = both;
+                    EditorUtility.SetDirty(m);
+                    tc++;
+                }
+                AssetDatabase.SaveAssets();
+                sb.AppendLine(tc + "/" + TheatreSpecs.Length + " matériaux du théâtre dans " + TheatreMatDir + " (GPU Instancing, Render Face Both sur " + string.Join(", ", TheatreDoubleSided) + ")");
+                RemapModel(TheatreName, sb, ref problems);
+            }
+            else
+            {
+                sb.AppendLine("Théâtre : " + FbxPath(TheatreName) + " absent, matériaux non créés.");
+            }
             AssetDatabase.SaveAssets();
             sb.AppendLine(problems == 0 ? "IMPORT PROPS: OK" : "IMPORT PROPS: " + problems + " problème(s)");
             if (problems > 0) throw new Exception("Import des props incomplet : " + problems + " problème(s), voir ci-dessus.");
@@ -280,7 +324,8 @@ namespace Maestro.EditorTools
             if (!IsProp) return;
             var ti = (TextureImporter)assetImporter;
             string n = Path.GetFileNameWithoutExtension(assetPath);
-            ti.maxTextureSize = 1024;
+            // Théâtre : velours et fresque bakés en 2048 (grandes surfaces tuilées / coupole), le reste en 1024.
+            ti.maxTextureSize = n.StartsWith("T_Theatre_Velvet") || n.StartsWith("T_Theatre_Fresco") ? 2048 : 1024;
             ti.textureCompression = TextureImporterCompression.Compressed;
             ti.mipmapEnabled = true;
             if (n.EndsWith("_Normal") || n.EndsWith("_N"))

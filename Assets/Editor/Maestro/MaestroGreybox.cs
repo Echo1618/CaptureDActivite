@@ -147,6 +147,43 @@ namespace Maestro.EditorTools
         {
             { "Strings", new Vector3(10f, 180f, -35f) }, { "Vent", new Vector3(-40f, 180f, 0f) }, { "Brass", new Vector3(-25f, 180f, 0f) }, { "Percution", Vector3.zero },
         };
+
+        // ----- v5 : théâtre à l'italienne (Theatre.fbx) à la place de la coque opéra greybox -----
+        // La conversion de main de l'importeur Unity inverse Z (scène importée vers -Z) : le Model est tourné de 180° sur Y.
+        public static readonly Vector3 TheatreModelEuler = new Vector3(0f, 180f, 0f);
+        public static readonly string[] OperaGreyboxToRemove = { "Sol_Opera", "Murs", "Balcons", "Corniche", "Proscenium", "Dome" };
+        public const string TheatreDomePath = "OperaShell/Model/Ceiling/Dome";
+        public const string GreyboxDomePath = "OperaShell/Dome";
+        public static readonly Vector3 TheatreDomeCenter = new Vector3(0f, 24f, -8f); // calotte : demi-axes 18 (x) × 7 (y) × 14.5 (z), sommet 31, oculus r 1.5
+        public static readonly Vector3 TheatreEntablature = new Vector3(0f, 18.5f, 7f);  // entablement doré du cadre de scène (y 17 → 20)
+        public static readonly Vector3[] TheatreOperaLightPos =
+        {
+            new Vector3(-17f, 9.5f, -6f), new Vector3(17f, 9.5f, -6f), new Vector3(0f, 9.5f, -23f),   // galerie 2 (plancher 8)
+            new Vector3(-17f, 14f, -6f),  new Vector3(17f, 14f, -6f),  new Vector3(0f, 14f, -23f),    // galerie 3 (plancher 12.5)
+        };
+        public const float TheatreFloorLift = 0.02f; // StageFloor et parterre (OuterWalls) à -1.48 : pas de z-fighting avec la cour du Stage
+        public static readonly string[] TheatreLiftedObjects = { "StageFloor", "OuterWalls" };
+        public const StaticEditorFlags TheatreStaticFlags = StaticEditorFlags.OccluderStatic | StaticEditorFlags.OccludeeStatic | StaticEditorFlags.ReflectionProbeStatic; // pas de Batching Static ni ContributeGI : OperaShell bouge
+
+        public static bool TheatreAvailable { get { return MaestroProps.Available(MaestroProps.TheatreName); } }
+        /// <summary>Chemin (depuis Environment) de l'objet coupole animé par EnvironmentController.</summary>
+        public static string DomePath { get { return TheatreAvailable ? TheatreDomePath : GreyboxDomePath; } }
+        public static Vector3 DomeRestPos { get { return TheatreAvailable ? Vector3.zero : DomeCenter; } }
+        public static Vector3 DomeRestScale { get { return TheatreAvailable ? Vector3.one : DomeScale; } }
+
+        /// <summary>Hauteur du plafond au-dessus du point (x, z) : calotte du théâtre si importé, sinon ellipsoïde greybox.</summary>
+        public static float CeilingY(float x, float z)
+        {
+            if (TheatreAvailable)
+            {
+                float dx = x / 18f, dz = (z - TheatreDomeCenter.z) / 14.5f;
+                float k = 1f - dx * dx - dz * dz;
+                return k > 0f ? TheatreDomeCenter.y + 7f * Mathf.Sqrt(k) : TheatreDomeCenter.y;
+            }
+            float hr = DomeScale.x * 0.5f, vr = DomeScale.y * 0.5f;
+            float kk = 1f - (x * x + z * z) / (hr * hr);
+            return kk > 0f ? DomeCenter.y + vr * Mathf.Sqrt(kk) : DomeCenter.y;
+        }
         public static readonly Color AmbientOpera = new Color(0.40f, 0.32f, 0.26f);
         public static readonly Color FogNight = new Color(0.02f, 0.03f, 0.08f);
 
@@ -735,30 +772,35 @@ namespace Maestro.EditorTools
             AnimationClip opera = NewClip("Anim_Opera", false);
             AnimationClip toRave = NewClip("Anim_ToRave", false);
             AnimationClip toOpera = NewClip("Anim_ToOpera", false);
-            Vector3 domeEnd = DomeScale * DomeEndScale;
+            // v5 : la coupole animée est celle du théâtre (OperaShell/Model/Ceiling/Dome, pivot à l'origine, échelle 1) si le modèle est importé,
+            // sinon la sphère greybox OperaShell/Dome (centre (0, 8, 0), échelle (80, 55, 80)).
+            string domePath = DomePath;
+            Vector3 domeRest = DomeRestPos;
+            Vector3 domeScale = DomeRestScale;
+            Vector3 domeEnd = domeScale * DomeEndScale;
 
             // Opera : pose de départ (1 frame)
             MoodCurve(opera, Const(0f, f));
             Vec3Curves(opera, "OperaShell", "localPosition", Const(0f, f), Const(0f, f), Const(0f, f));
             Vec3Curves(opera, "CastleShell", "localPosition", Const(0f, f), Const(CastleShellHiddenY, f), Const(0f, f));
-            Vec3Curves(opera, "OperaShell/Dome", "localPosition", Const(DomeCenter.x, f), Const(DomeCenter.y, f), Const(DomeCenter.z, f));
-            Vec3Curves(opera, "OperaShell/Dome", "localScale", Const(DomeScale.x, f), Const(DomeScale.y, f), Const(DomeScale.z, f));
+            Vec3Curves(opera, domePath, "localPosition", Const(domeRest.x, f), Const(domeRest.y, f), Const(domeRest.z, f));
+            Vec3Curves(opera, domePath, "localScale", Const(domeScale.x, f), Const(domeScale.y, f), Const(domeScale.z, f));
             Vec3Curves(opera, "OperaShell/Lustre", "localPosition", Const(LustrePos.x, f), Const(LustrePos.y, f), Const(LustrePos.z, f));
 
-            // ToRave : 0→2 s lustre +60 et dôme +80 / échelle 0.2 ; 0.5→4 s OperaShell → -30 ; 1→5 s CastleShell -45 → 0 ; 0→6 s rave 0 → 1
+            // ToRave : 0→2 s lustre +60 et coupole +80 / échelle 0 ; 0.5→4 s OperaShell → -30 ; 1→5 s CastleShell -45 → 0 ; 0→6 s rave 0 → 1
             MoodCurve(toRave, HoldEase(0f, 0f, D, 1f, D));
             Vec3Curves(toRave, "OperaShell", "localPosition", Const(0f, D), HoldEase(0.5f, 0f, 4f, OperaShellRaveY, D), Const(0f, D));
             Vec3Curves(toRave, "CastleShell", "localPosition", Const(0f, D), HoldEase(1f, CastleShellHiddenY, 5f, 0f, D), Const(0f, D));
-            Vec3Curves(toRave, "OperaShell/Dome", "localPosition", Const(DomeCenter.x, D), HoldEase(0f, DomeCenter.y, 2f, DomeCenter.y + DomeRise, D), Const(DomeCenter.z, D));
-            Vec3Curves(toRave, "OperaShell/Dome", "localScale", HoldEase(0f, DomeScale.x, 2f, domeEnd.x, D), HoldEase(0f, DomeScale.y, 2f, domeEnd.y, D), HoldEase(0f, DomeScale.z, 2f, domeEnd.z, D));
+            Vec3Curves(toRave, domePath, "localPosition", Const(domeRest.x, D), HoldEase(0f, domeRest.y, 2f, domeRest.y + DomeRise, D), Const(domeRest.z, D));
+            Vec3Curves(toRave, domePath, "localScale", HoldEase(0f, domeScale.x, 2f, domeEnd.x, D), HoldEase(0f, domeScale.y, 2f, domeEnd.y, D), HoldEase(0f, domeScale.z, 2f, domeEnd.z, D));
             Vec3Curves(toRave, "OperaShell/Lustre", "localPosition", Const(LustrePos.x, D), HoldEase(0f, LustrePos.y, 2f, LustrePos.y + LustreRise, D), Const(LustrePos.z, D));
 
             // ToOpera : miroir temporel de ToRave (valeur(t) = ToRave(D - t))
             MoodCurve(toOpera, HoldEase(0f, 1f, D, 0f, D));
             Vec3Curves(toOpera, "OperaShell", "localPosition", Const(0f, D), HoldEase(D - 4f, OperaShellRaveY, D - 0.5f, 0f, D), Const(0f, D));
             Vec3Curves(toOpera, "CastleShell", "localPosition", Const(0f, D), HoldEase(D - 5f, 0f, D - 1f, CastleShellHiddenY, D), Const(0f, D));
-            Vec3Curves(toOpera, "OperaShell/Dome", "localPosition", Const(DomeCenter.x, D), HoldEase(D - 2f, DomeCenter.y + DomeRise, D, DomeCenter.y, D), Const(DomeCenter.z, D));
-            Vec3Curves(toOpera, "OperaShell/Dome", "localScale", HoldEase(D - 2f, domeEnd.x, D, DomeScale.x, D), HoldEase(D - 2f, domeEnd.y, D, DomeScale.y, D), HoldEase(D - 2f, domeEnd.z, D, DomeScale.z, D));
+            Vec3Curves(toOpera, domePath, "localPosition", Const(domeRest.x, D), HoldEase(D - 2f, domeRest.y + DomeRise, D, domeRest.y, D), Const(domeRest.z, D));
+            Vec3Curves(toOpera, domePath, "localScale", HoldEase(D - 2f, domeEnd.x, D, domeScale.x, D), HoldEase(D - 2f, domeEnd.y, D, domeScale.y, D), HoldEase(D - 2f, domeEnd.z, D, domeScale.z, D));
             Vec3Curves(toOpera, "OperaShell/Lustre", "localPosition", Const(LustrePos.x, D), HoldEase(D - 2f, LustrePos.y + LustreRise, D, LustrePos.y, D), Const(LustrePos.z, D));
 
             AnimatorController c = NewController("EnvironmentController");
@@ -781,7 +823,7 @@ namespace Maestro.EditorTools
             back.hasFixedDuration = true;
             back.duration = 0f;
             EditorUtility.SetDirty(c);
-            Log("EnvironmentController : Opera (défaut) → Rave sur trigger Rave (Anim_ToRave " + D + " s) ; Rave → ToOpera sur trigger Reset (Anim_ToOpera " + D + " s) → Opera. Pas de trigger Night.");
+            Log("EnvironmentController : Opera (défaut) → Rave sur trigger Rave (Anim_ToRave " + D + " s) ; Rave → ToOpera sur trigger Reset (Anim_ToOpera " + D + " s) → Opera. Coupole animée : " + domePath + " (repos " + domeRest.ToString("F1") + " échelle " + domeScale.ToString("F1") + " → +" + DomeRise + " m, échelle " + DomeEndScale + "). Pas de trigger Night.");
             return c;
         }
 
@@ -927,9 +969,9 @@ namespace Maestro.EditorTools
             // Lustre : plateau doré, chaîne jusqu'au plafond du dôme, 12 perles émissives + cœur, Point Light blanc chaud
             Transform lustre = Empty("Lustre", p, LustrePos, Vector3.zero).transform;
             Prim(PrimitiveType.Cylinder, "Plateau", lustre, Vector3.zero, Vector3.zero, new Vector3(3f, 0.15f, 3f), m.gold);
-            float hr = DomeScale.x * 0.5f, vr = DomeScale.y * 0.5f;
-            float ceilingY = DomeCenter.y + vr * Mathf.Sqrt(Mathf.Max(0f, 1f - (LustrePos.z * LustrePos.z) / (hr * hr)));
-            float chain = Mathf.Max(5f, ceilingY - LustrePos.y - 0.15f);
+            float vr = DomeScale.y * 0.5f;
+            float ceilingY = CeilingY(LustrePos.x, LustrePos.z);
+            float chain = Mathf.Max(1f, ceilingY - LustrePos.y - 0.15f);
             NoCollider(Prim(PrimitiveType.Cylinder, "Chaine", lustre, new Vector3(0f, 0.15f + chain * 0.5f, 0f), Vector3.zero, new Vector3(0.1f, chain * 0.5f, 0.1f), m.gold));
             for (int i = 0; i < 12; i++)
             {
@@ -1593,6 +1635,39 @@ namespace Maestro.EditorTools
             Transform opera = root.transform.Find("OperaShell");
             Transform castle = root.transform.Find("CastleShell");
             if (opera == null || castle == null) { Log("Environment : OperaShell/CastleShell introuvables, rien d'habillé"); return 0; }
+
+            // v5 : théâtre à l'italienne à la place de la coque greybox (sol, murs, balcons, sphère + corniche, cadre de scène, rideaux)
+            if (TheatreAvailable)
+            {
+                GameObject tm;
+                n += AttachModel(opera, MaestroProps.TheatreName, Vector3.zero, TheatreModelEuler, OperaGreyboxToRemove, false, out tm);
+                if (tm != null)
+                {
+                    foreach (string name in TheatreLiftedObjects)
+                    {
+                        Transform f = tm.transform.Find(name);
+                        if (f != null && Mathf.Abs(f.localPosition.y - TheatreFloorLift) > 1e-5f) { f.localPosition = new Vector3(0f, TheatreFloorLift, 0f); n = Math.Max(n, 1); }
+                    }
+                    Transform dome = tm.transform.Find("Ceiling/Dome");
+                    int flagged = 0;
+                    foreach (Transform t in tm.GetComponentsInChildren<Transform>(true))
+                    {
+                        bool isDome = dome != null && (t == dome || t.IsChildOf(dome));
+                        StaticEditorFlags want = isDome ? 0 : TheatreStaticFlags;
+                        if (GameObjectUtility.GetStaticEditorFlags(t.gameObject) != want) { GameObjectUtility.SetStaticEditorFlags(t.gameObject, want); n = Math.Max(n, 1); }
+                        if (!isDome) flagged++;
+                    }
+                    Transform lum = opera.Find("Lumieres_Opera");
+                    int moved = 0;
+                    for (int i = 0; i < TheatreOperaLightPos.Length && lum != null; i++)
+                    {
+                        Transform l = lum.Find("Opera_Light_" + (i + 1));
+                        if (l == null) continue;
+                        if ((l.localPosition - TheatreOperaLightPos[i]).magnitude > 1e-4f) { l.localPosition = TheatreOperaLightPos[i]; n = Math.Max(n, 1); moved++; }
+                    }
+                    Log("OperaShell : Theatre.fbx posé (Model, rotation Y 180° : scène vers +Z), coque greybox supprimée (" + string.Join(", ", OperaGreyboxToRemove) + "), " + string.Join("/", TheatreLiftedObjects) + " remontés de " + (TheatreFloorLift * 100f) + " cm, " + flagged + " objets Static (occluder/occludee/reflection, sans Batching ni ContributeGI), coupole animée = " + TheatreDomePath + ", " + moved + " lumière(s) de balcon replacée(s) aux galeries 2 et 3.");
+                }
+            }
 
             // Lustre : Model au point d'accroche (pivot sommet), chaîne primitive conservée jusqu'au plafond, Point Light au centre des bougies
             Transform lustre = opera.Find("Lustre");
