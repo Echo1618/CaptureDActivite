@@ -1,0 +1,16 @@
+CLASSIQUE + ELECTRO — COMPOSITION ORIGINALE (3:00)
+
+Tempo : 120 BPM | Mesure : 4/4 | Tonalité : ré mineur / fa majeur | Durée : 180 s
+Rendu : SoundFont General MIDI (TimGM6mb), FluidSynth, 44,1 kHz, stéréo, PCM 16 bits pour les WAV.
+
+Mixages :
+- Mix_01_Orchestre_seul_3min.wav / .mp3 : cordes, bois, cuivres et percussions, sans électronique.
+- Mix_02_Orchestre_Electro_3min.wav / .mp3 : mêmes pistes + basse électronique et synthé/clavier.
+
+Pistes séparées : les 15 stems alignés sur exactement 180 secondes sont livrés en FLAC lossless dans FLAC_Stems/ (et les WAV sont disponibles séparément dans le dossier principal).
+Pistes : violons, altos, violoncelles, contrebasses, flûtes, clarinettes, hautbois, bassons, trompettes, cors, trombones, timbales, triangle, basse électronique, synthé/clavier.
+
+Fichier MIDI multipiste : Classique_Electro_120BPM_3min_multitrack.mid.
+Les niveaux appliqués aux stems sont ceux utilisés pour le rendu des mixages. La normalisation de crête est appliquée uniquement aux deux mixages finaux.
+
+Note : il s'agit d'un rendu orchestral virtuel à partir d'un SoundFont General MIDI, pas d'un enregistrement d'un orchestre réel. La composition et les motifs ont été écrits spécialement pour ce rendu.
