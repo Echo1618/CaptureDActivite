@@ -1419,7 +1419,7 @@ AudioSource:
   Spatialize: 0
   SpatializePostEffects: 0
   Priority: 128
-  DopplerLevel: 1
+  DopplerLevel: 5
   MinDistance: 1
   MaxDistance: 500
   Pan2D: 0
@@ -1456,7 +1456,7 @@ AudioSource:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 0
+      value: 1
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -1471,7 +1471,7 @@ AudioSource:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 0
+      value: 1
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -12141,7 +12141,7 @@ AudioSource:
   Spatialize: 0
   SpatializePostEffects: 0
   Priority: 128
-  DopplerLevel: 1
+  DopplerLevel: 5
   MinDistance: 1
   MaxDistance: 500
   Pan2D: 0
@@ -12178,7 +12178,7 @@ AudioSource:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 0
+      value: 1
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -12193,7 +12193,7 @@ AudioSource:
     m_Curve:
     - serializedVersion: 3
       time: 0
-      value: 0
+      value: 1
       inSlope: 0
       outSlope: 0
       tangentMode: 0
@@ -12431,16 +12431,16 @@ MonoBehaviour:
   m_Families:
   - family: 1
     mixerVolumeParameter: CordesVolume
-    initialVolume: 1
+    initialVolume: 0.6
   - family: 2
     mixerVolumeParameter: BoisVolume
-    initialVolume: 1
+    initialVolume: 0.6
   - family: 3
     mixerVolumeParameter: CuivresVolume
-    initialVolume: 1
+    initialVolume: 0.6
   - family: 4
     mixerVolumeParameter: PercussionVolume
-    initialVolume: 1
+    initialVolume: 0.6
   - family: 5
     mixerVolumeParameter: ElectroVolume
     initialVolume: 0
@@ -12513,15 +12513,15 @@ MonoBehaviour:
   - instrumentId: Basse
     family: 5
     audioSource: {fileID: 1598158486}
-    initialVolume: 0
+    initialVolume: 1
     initiallyMuted: 0
   - instrumentId: Synthe
     family: 5
     audioSource: {fileID: 516163874}
-    initialVolume: 0
+    initialVolume: 1
     initiallyMuted: 0
-  m_MinVolumeDb: 0
-  m_MaxVolumeDb: 60
+  m_MinVolumeDb: -80
+  m_MaxVolumeDb: 90
   m_InitialGlobalVolume: 1
   m_TransitionElectroVolume: 0.35
   m_TechnoElectroVolume: 1
