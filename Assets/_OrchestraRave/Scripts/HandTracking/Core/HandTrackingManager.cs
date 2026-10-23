@@ -106,47 +106,95 @@ public class HandTrackingManager : MonoBehaviour
         data = default;
         data.IsTracked = true;
 
-        data.WristPosition = Vector3.zero;
-        data.WristRotation = Quaternion.identity;
+        // 1. Lire les articulations et conserver leur validité.
+        data.WristValid = ReadJoint(
+            hand, XRHandJointID.Wrist,
+            out data.WristPosition, out data.WristRotation);
 
-        ReadJoint(hand, XRHandJointID.Wrist, out data.WristPosition, out data.WristRotation);
+        data.ThumbTipValid = ReadJoint(
+            hand, XRHandJointID.ThumbTip,
+            out data.ThumbTipPosition, out _);
 
-        ReadJoint(hand, XRHandJointID.ThumbTip, out data.ThumbTipPosition, out _);
+        data.IndexTipValid = ReadJoint(
+            hand, XRHandJointID.IndexTip,
+            out data.IndexTipPosition, out _);
 
-        ReadJoint(hand, XRHandJointID.IndexTip, out data.IndexTipPosition, out _);
+        data.MiddleTipValid = ReadJoint(
+            hand, XRHandJointID.MiddleTip,
+            out data.MiddleTipPosition, out _);
 
-        ReadJoint(hand, XRHandJointID.MiddleTip, out data.MiddleTipPosition, out _);
+        data.RingTipValid = ReadJoint(
+            hand, XRHandJointID.RingTip,
+            out data.RingTipPosition, out _);
 
-        ReadJoint(hand, XRHandJointID.RingTip, out data.RingTipPosition, out _);
+        data.LittleTipValid = ReadJoint(
+            hand, XRHandJointID.LittleTip,
+            out data.LittleTipPosition, out _);
 
-        ReadJoint(hand, XRHandJointID.LittleTip, out data.LittleTipPosition, out _);
+        data.PalmValid = ReadJoint(
+            hand, XRHandJointID.Palm,
+            out data.PalmPosition, out _);
 
-        data.NormalizedHeight = NormalizeHeight(data.WristPosition.y);
+        data.IndexProximalValid = ReadJoint(
+            hand, XRHandJointID.IndexProximal,
+            out data.IndexProximalPosition, out _);
 
-        bool palmValid = ReadJoint(hand, XRHandJointID.Palm, out data.PalmPosition, out _);
+        data.IndexIntermediateValid = ReadJoint(
+            hand, XRHandJointID.IndexIntermediate,
+            out data.IndexIntermediatePosition, out _);
 
-        bool indexProximalValid = ReadJoint(hand, XRHandJointID.IndexProximal, out data.IndexProximalPosition, out _);
+        // 2. Calculer la hauteur normalisée uniquement si le poignet est valide.
+        data.NormalizedHeight = data.WristValid
+            ? NormalizeHeight(data.WristPosition.y)
+            : 0f;
 
-        bool indexIntermediateValid = ReadJoint(hand, XRHandJointID.IndexIntermediate, out data.IndexIntermediatePosition, out _);
-
-        data.PointingRayOrigin = data.IndexProximalPosition;
+        // 3. Calculer le rayon de pointage.
+        data.PointingRayOrigin = data.IndexProximalValid
+            ? data.IndexProximalPosition
+            : Vector3.zero;
 
         Vector3 indexDirection = data.IndexTipPosition - data.IndexProximalPosition;
 
-        data.PointingRayDirection = indexDirection.sqrMagnitude > 0.0001f ? indexDirection.normalized : Vector3.zero;
+        data.PointingRayDirection =
+            data.IndexTipValid &&
+            data.IndexProximalValid &&
+            indexDirection.sqrMagnitude > 0.0001f
+                ? indexDirection.normalized
+                : Vector3.zero;
 
-        bool middleFolded = Vector3.Distance(data.MiddleTipPosition, data.PalmPosition) < foldedFingerDistance;
+        // 4. Vérifier si les doigts autres que l'index sont repliés.
+        bool middleFolded =
+            data.MiddleTipValid &&
+            data.PalmValid &&
+            Vector3.Distance(data.MiddleTipPosition, data.PalmPosition) < foldedFingerDistance;
 
-        bool ringFolded = Vector3.Distance(data.RingTipPosition, data.PalmPosition) < foldedFingerDistance;
+        bool ringFolded = data.RingTipValid && data.PalmValid && Vector3.Distance(data.RingTipPosition, data.PalmPosition) < foldedFingerDistance;
 
-        bool littleFolded = Vector3.Distance(data.LittleTipPosition, data.PalmPosition) < foldedFingerDistance;
+        bool littleFolded =
+            data.LittleTipValid &&
+            data.PalmValid &&
+            Vector3.Distance(
+                data.LittleTipPosition,
+                data.PalmPosition) < foldedFingerDistance;
 
-        bool indexExtended = Vector3.Distance(data.IndexTipPosition, data.PalmPosition) > indexExtendedDistance;
+        // 5. Vérifier si l'index est tendu.
+        bool indexExtended =
+            data.IndexTipValid &&
+            data.PalmValid &&
+            Vector3.Distance(
+                data.IndexTipPosition,
+                data.PalmPosition) > indexExtendedDistance;
 
+        // 6. Reconnaître le geste de pointage.
         data.IsPointing =
-            palmValid &&
-            indexProximalValid &&
-            indexIntermediateValid &&
+            data.IsTracked &&
+            data.PalmValid &&
+            data.IndexProximalValid &&
+            data.IndexIntermediateValid &&
+            data.IndexTipValid &&
+            data.MiddleTipValid &&
+            data.RingTipValid &&
+            data.LittleTipValid &&
             indexExtended &&
             middleFolded &&
             ringFolded &&
@@ -182,8 +230,10 @@ public class HandTrackingManager : MonoBehaviour
 
     private bool IsHandOpen(HandData hand)
     {
-        if (!hand.IsTracked)
+        if (!hand.IsTracked || !hand.WristValid || !hand.ThumbTipValid || !hand.IndexTipValid || !hand.MiddleTipValid || !hand.RingTipValid || !hand.LittleTipValid)
+        {
             return false;
+        }
 
         Vector3 wrist = hand.WristPosition;
 
@@ -202,7 +252,7 @@ public class HandTrackingManager : MonoBehaviour
 
     private bool IsHandPinching(HandData hand, bool wasPinching)
     {
-        if (!hand.IsTracked)
+        if (!hand.IsTracked || !hand.ThumbTipValid || !hand.IndexTipValid)
             return false;
 
         float threshold = wasPinching ? pinchReleaseDistance : pinchStartDistance;

@@ -5,6 +5,15 @@ using UnityEngine.XR.Hands;
 public struct HandData
 {
     public bool IsTracked;
+    public bool WristValid;
+    public bool ThumbTipValid;
+    public bool IndexTipValid;
+    public bool MiddleTipValid;
+    public bool RingTipValid;
+    public bool LittleTipValid;
+    public bool PalmValid;
+    public bool IndexProximalValid;
+    public bool IndexIntermediateValid;
 
     public Vector3 WristPosition;
     public Quaternion WristRotation;
