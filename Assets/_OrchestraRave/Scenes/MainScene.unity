@@ -785,6 +785,9 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 809708388}
+  - component: {fileID: 809708391}
+  - component: {fileID: 809708390}
+  - component: {fileID: 809708389}
   m_Layer: 0
   m_Name: InteractionSystem
   m_TagString: Untagged
@@ -807,6 +810,54 @@ Transform:
   m_Children: []
   m_Father: {fileID: 883836146}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &809708389
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 809708387}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9adf6e0890e582344a964edb17ab8105, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HandTrackingInteractionAdapter
+  interactionManager: {fileID: 809708391}
+  instrumentSelector: {fileID: 809708390}
+  enableGlobalVolume: 1
+  enableGlobalFilter: 1
+  enableGroupVolume: 1
+--- !u!114 &809708390
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 809708387}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b391d5ebc632e4745872efd7d1ef3e7e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::InstrumentSelector
+  maxSelectionDistance: 15
+  instrumentLayer:
+    serializedVersion: 2
+    m_Bits: 8
+  interactionManager: {fileID: 809708391}
+  confirmationDuration: 1
+  interruptionTolerance: 0.2
+--- !u!114 &809708391
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 809708387}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 55ac9c4846234c745bb1cd83a347ac11, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OrchestraInteractionManager
 --- !u!114 &859523370 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 3602329296587878497, guid: 12e7c6e2a052ca344a4b1b5616e1597c, type: 3}
