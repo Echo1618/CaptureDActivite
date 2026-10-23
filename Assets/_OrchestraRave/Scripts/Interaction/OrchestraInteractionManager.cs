@@ -25,6 +25,10 @@ public class OrchestraInteractionManager : MonoBehaviour
     public float GlobalVolume => m_globalVolume;
     public float GlobalFilter => m_globalFilter;
 
+    private bool m_globalMuted = false;
+
+    public bool GlobalMuted => m_globalMuted;
+
     public IReadOnlyCollection<InstrumentGroupId> SelectedGroups =>
         selectedGroups;
 
@@ -227,6 +231,20 @@ public class OrchestraInteractionManager : MonoBehaviour
                 phase: m_currentPhase
             )
         );
+    }
+
+    public void ToggleGlobalMute()
+    {
+        m_globalMuted = !m_globalMuted;
+
+        OrchestraEventBus.SendCommand(
+            new OrchestraCommand(
+                type: OrchestraCommandType.SetGlobalMute,
+                isMuted: m_globalMuted
+            )
+        );
+
+        Debug.Log($"Global mute : {m_globalMuted}");
     }
 
     // --------------------------------------------------

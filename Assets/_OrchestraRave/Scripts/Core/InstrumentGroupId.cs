@@ -8,6 +8,5 @@ public enum InstrumentGroupId
     Classic_Woodwinds,
     Classic_Brass,
     Classic_Percussion,
-    Electro_Kick,
-    Electro_Snare
+    Electro
 }
