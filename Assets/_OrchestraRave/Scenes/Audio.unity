@@ -12388,6 +12388,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1840064664}
   - component: {fileID: 1840064665}
+  - component: {fileID: 1840064666}
   m_Layer: 0
   m_Name: AudioSystem
   m_TagString: Untagged
@@ -12526,6 +12527,19 @@ MonoBehaviour:
   m_TechnoElectroVolume: 1
   m_PhaseTransitionDuration: 3
   m_StartAutomatically: 1
+--- !u!114 &1840064666
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1840064663}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1ee61c95194e2bb47b97f787bdcb602f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::AudioBusListener
+  audioManager: {fileID: 1840064665}
 --- !u!114 &1944604703 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 7330164915256961379, guid: 12e7c6e2a052ca344a4b1b5616e1597c, type: 3}

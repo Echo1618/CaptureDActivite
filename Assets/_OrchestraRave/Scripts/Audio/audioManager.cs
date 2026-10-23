@@ -221,12 +221,12 @@ public class AudioManager : MonoBehaviour
 
     private void OnEnable()
     {
-        OrchestraEventBus.OnCommand += HandleCommand;
+
     }
 
     private void OnDisable()
     {
-        OrchestraEventBus.OnCommand -= HandleCommand;
+  
 
         if (m_ElectroFadeCoroutine != null)
         {
@@ -239,29 +239,7 @@ public class AudioManager : MonoBehaviour
     // RÉCEPTION DES COMMANDES
     // =========================================================
 
-    private void HandleCommand(OrchestraCommand command)
-    {
-        switch (command.Type)
-        {
-            case OrchestraCommandType.SetGlobalVolume:
-                SetGlobalVolume(command.Value);
-                break;
-
-            case OrchestraCommandType.SetGroupVolume:
-                SetFamilyVolume(command.Target, command.Value);
-                break;
-
-            case OrchestraCommandType.SetGroupMute:
-                SetFamilyMute(command.Target, command.IsMuted);
-                break;
-
-            case OrchestraCommandType.ChangePhase:
-                ChangePhase(command.Phase);
-                break;
-
-                // SetGlobalFilter est volontairement ignoré.
-        }
-    }
+ 
 
     // =========================================================
     // VOLUME GLOBAL
