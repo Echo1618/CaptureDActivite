@@ -72,6 +72,17 @@ namespace Maestro.EditorTools
                 sb.AppendLine((ok ? "Matériau musicien OK : " : "PROBLEME matériau musicien : ") + kv.Key + " base " + mm.GetColor("_BaseColor").ToString("F3") + " smoothness " + mm.GetFloat("_Smoothness").ToString("F2") + " (attendu " + kv.Value.ToString("F3") + " / " + MaestroGreybox.MusicianSmoothness + ")");
                 if (!ok) problems++;
             }
+            // v10 : mot-clé _EMISSION activé (émission noire, flags Realtime) sur les matériaux des capsules et de la peau, pour la surbrillance par MaterialPropertyBlock
+            int emOk = 0;
+            var emBad = new List<string>();
+            foreach (string mn in MaestroGreybox.HighlightMaterials)
+            {
+                var em = AssetDatabase.LoadAssetAtPath<Material>(MaestroGreybox.MatDir + "/" + mn + ".mat");
+                bool ok2 = em != null && em.IsKeywordEnabled("_EMISSION") && em.GetColor("_EmissionColor").maxColorComponent < 1e-4f && (em.globalIlluminationFlags & MaterialGlobalIlluminationFlags.AnyEmissive) != 0;
+                if (ok2) emOk++; else emBad.Add(mn);
+            }
+            sb.AppendLine((emOk == MaestroGreybox.HighlightMaterials.Length ? "Émission OK : " : "PROBLEME émission : ") + emOk + "/" + MaestroGreybox.HighlightMaterials.Length + " matériaux avec _EMISSION activé, émission noire et flags Realtime (" + string.Join(", ", MaestroGreybox.HighlightMaterials) + ")" + (emBad.Count > 0 ? " ; en défaut : " + string.Join(", ", emBad) : ""));
+            if (emOk != MaestroGreybox.HighlightMaterials.Length) problems++;
             var skyMat = AssetDatabase.LoadAssetAtPath<Material>(MaestroGreybox.MatDir + "/" + MaestroGreybox.SkyboxMaterialName + ".mat");
             if (skyMat == null || skyMat.shader == null || skyMat.shader.name != "Skybox/Procedural") { sb.AppendLine("PROBLEME: " + MaestroGreybox.SkyboxMaterialName + " manquant ou mauvais shader"); problems++; }
             sb.AppendLine("Matériaux vérifiés : " + MaestroGreybox.LitMaterialNames.Length + " URP/Lit (M_Plaster double face) + " + MaestroGreybox.SkyboxMaterialName + " (Skybox/Procedural)");
@@ -110,8 +121,11 @@ namespace Maestro.EditorTools
                 var states = new HashSet<string>();
                 foreach (var s in envCtrl.layers[0].stateMachine.states) states.Add(s.state.name);
                 AnimatorState def = envCtrl.layers[0].stateMachine.defaultState;
-                bool ok = hasRave && hasReset && !hasNight && states.Contains("Opera") && states.Contains("Rave") && states.Contains("ToOpera") && def != null && def.name == "Opera";
-                sb.AppendLine((ok ? "EnvironmentController OK : " : "PROBLEME EnvironmentController : ") + "triggers Rave=" + hasRave + " Reset=" + hasReset + " Night=" + hasNight + ", états " + string.Join("/", states) + ", défaut " + (def != null ? def.name : "?"));
+                bool hasLevel = false;
+                foreach (var p in envCtrl.parameters) if (p.name == MaestroGreybox.LevelParameter && p.type == AnimatorControllerParameterType.Float) hasLevel = true;
+                problems += CheckEnvironmentTransitions(sb, envCtrl.layers[0].stateMachine);
+                bool ok = hasRave && hasReset && hasLevel && !hasNight && states.Contains("Opera") && states.Contains("Rave") && states.Contains("ToOpera") && def != null && def.name == "Opera";
+                sb.AppendLine((ok ? "EnvironmentController OK : " : "PROBLEME EnvironmentController : ") + "triggers Rave=" + hasRave + " Reset=" + hasReset + " Level(float)=" + hasLevel + " Night=" + hasNight + ", états " + string.Join("/", states) + ", défaut " + (def != null ? def.name : "?"));
                 if (!ok) problems++;
             }
             var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(MaestroGreybox.MatDir + "/" + MaestroGreybox.VolumeProfileName + ".asset");
@@ -224,6 +238,12 @@ namespace Maestro.EditorTools
                     bool ok = nulls == 0 && opera == MaestroGreybox.OperaLightCount && torches == 12 && braziers == 4 && bases && moonOk && intensOk && Mathf.Abs(mood.rave) < 1e-6f;
                     sb.AppendLine((ok ? "EnvironmentMood OK : " : "PROBLEME EnvironmentMood : ") + refs + " références (" + nulls + " nulle(s)), rave=" + mood.rave + ", lumières opéra " + opera + " (attendu " + MaestroGreybox.OperaLightCount + " : lustre + 6 balcons + 2 avant-scène + 5 poursuites + fill), torches " + torches + " à " + MaestroGreybox.TorchBase + " (attendu 12), braseros " + braziers + " à " + MaestroGreybox.BrazierBase + " (attendu 4), lune échelle 0 sous CastleShell=" + moonOk + ", Directional=" + (mood.directionalLight != null ? mood.directionalLight.name : "null"));
                     if (!ok) problems++;
+                    // v9 : réflexions d'environnement plates (cubemap uniforme = ambiant opéra), plus de cubemap de skybox
+                    var cm = AssetDatabase.LoadAssetAtPath<Cubemap>(MaestroGreybox.MatDir + "/" + MaestroGreybox.FlatReflectionName + ".cubemap");
+                    Color cmColor = cm != null ? cm.GetPixel(CubemapFace.PositiveY, 0, 0).gamma : Color.black;
+                    bool reflOk = cm != null && cm.width == MaestroGreybox.FlatReflectionSize && RenderSettings.defaultReflectionMode == DefaultReflectionMode.Custom && RenderSettings.customReflectionTexture == cm && mood.flatReflection == cm && ColorClose(cmColor, MaestroGreybox.AmbientOpera);
+                    sb.AppendLine((reflOk ? "Réflexions OK : " : "PROBLEME réflexions : ") + "mode " + RenderSettings.defaultReflectionMode + ", custom=" + (RenderSettings.customReflectionTexture != null ? RenderSettings.customReflectionTexture.name : "null") + ", asset " + MaestroGreybox.FlatReflectionName + (cm != null ? " " + cm.width + " px couleur " + cmColor.ToString("F2") : " absent") + ", EnvironmentMood.flatReflection=" + (mood.flatReflection != null) + " (attendu Custom, cubemap uniforme = ambiant opéra " + MaestroGreybox.AmbientOpera.ToString("F2") + ")");
+                    if (!reflOk) problems++;
                 }
             }
 
@@ -242,6 +262,13 @@ namespace Maestro.EditorTools
                 bool countOk = anims.Length == expected && bad == 0;
                 sb.AppendLine((countOk ? "Section OK : " : "PROBLEME section : ") + n + " : " + anims.Length + " musicien(s) (attendu " + expected + "), Animator MusicianController " + (bad > 0 ? "manquant sur " + bad : "OK"));
                 if (!countOk) problems++;
+                // v10 : SectionHighlight sur la racine de la section, couleur = base du matériau, réglages du build
+                SectionHighlight hl = s.GetComponent<SectionHighlight>();
+                Color secColor = MaestroGreybox.MusicianBaseColors.ContainsKey("M_" + n) ? MaestroGreybox.MusicianBaseColors["M_" + n] : Color.white;
+                bool hlOk = hl != null && ColorClose(hl.sectionColor, secColor) && Mathf.Abs(hl.softIntensity - MaestroGreybox.HighlightSoft) < 1e-3f && Mathf.Abs(hl.strongIntensity - MaestroGreybox.HighlightStrong) < 1e-3f
+                    && Mathf.Abs(hl.pulseAmplitude - MaestroGreybox.HighlightPulseAmplitude) < 1e-3f && Mathf.Abs(hl.pulseHz - MaestroGreybox.HighlightPulseHz) < 1e-3f && Mathf.Abs(hl.fadeSeconds - MaestroGreybox.HighlightFade) < 1e-3f;
+                sb.AppendLine((hlOk ? "  SectionHighlight OK : " : "  PROBLEME SectionHighlight : ") + (hl != null ? "couleur " + hl.sectionColor.ToString("F3") + ", doux " + hl.softIntensity + ", fort " + hl.strongIntensity + " ± " + hl.pulseAmplitude + " à " + hl.pulseHz + " Hz, fondu " + hl.fadeSeconds + " s" : "absent") + " (attendu couleur du matériau " + secColor.ToString("F3") + ", " + MaestroGreybox.HighlightSoft + " / " + MaestroGreybox.HighlightStrong + " ± " + MaestroGreybox.HighlightPulseAmplitude + " / " + MaestroGreybox.HighlightPulseHz + " Hz / " + MaestroGreybox.HighlightFade + " s)");
+                if (!hlOk) problems++;
                 int placed = 0;
                 for (int i = 0; i < layout.Length; i++)
                 {
@@ -455,6 +482,12 @@ namespace Maestro.EditorTools
             bool buttonsOk = buttons.Length == expectedButtons && wired == expectedButtons && missing.Count == 0 && tooSmall == 0;
             sb.AppendLine((buttonsOk ? "Boutons OK : " : "PROBLEME boutons : ") + buttons.Length + " boutons (attendu " + expectedButtons + ", dont « Poursuites on/off » → OnTogglePoursuites), " + wired + " câblés en persistant sur MaestroArtDebugPanel, méthodes manquantes : " + (missing.Count == 0 ? "aucune" : string.Join(", ", missing)) + ", " + tooSmall + " bouton(s) < 0.08 m");
             if (!buttonsOk) problems++;
+            bool labelOk = dp.raveLabel != null && dp.raveLabel.transform.parent != null && dp.raveLabel.transform.parent.name == "Btn_Rave" && dp.raveLabel.text == MaestroGreybox.DebugButtons[0];
+            sb.AppendLine((labelOk ? "Bouton Rave OK : " : "PROBLEME bouton Rave : ") + "raveLabel " + (dp.raveLabel != null && dp.raveLabel.transform.parent != null ? "→ " + dp.raveLabel.transform.parent.name + " (texte « " + dp.raveLabel.text + " »)" : "non assigné") + ", bascule « " + dp.raveLabelOpera + " » / « " + dp.raveLabelRave + " » selon l'état (attendu libellé de Btn_Rave, texte « " + MaestroGreybox.DebugButtons[0] + " » hors Play Mode)");
+            if (!labelOk) problems++;
+            bool hlLabelOk = dp.highlightLabel != null && dp.highlightLabel.transform.parent != null && dp.highlightLabel.transform.parent.name == "Btn_HighlightTest" && dp.highlightLabel.text == dp.highlightLabelIdle;
+            sb.AppendLine((hlLabelOk ? "Bouton Highlight test OK : " : "PROBLEME bouton Highlight test : ") + "highlightLabel " + (dp.highlightLabel != null && dp.highlightLabel.transform.parent != null ? "→ " + dp.highlightLabel.transform.parent.name + " (texte « " + dp.highlightLabel.text + " »)" : "non assigné") + ", cycle " + string.Join(" → ", MaestroArtDebugPanel.HighlightCycleLabels) + " (attendu libellé de Btn_HighlightTest, texte « " + dp.highlightLabelIdle + " » hors Play Mode)");
+            if (!hlLabelOk) problems++;
 
             GameObject es = Find(roots, MaestroGreybox.EventSystemName);
             bool esOk = es != null && es.GetComponent<EventSystem>() != null && es.GetComponent<XRUIInputModule>() != null;
@@ -822,6 +855,43 @@ namespace Maestro.EditorTools
             bool geomOk = isColumn(cl) && isColumn(cr) && isColumn(ct) && openOk && behind;
             sb.AppendLine((geomOk ? "Géométrie OK : " : "PROBLEME géométrie : ") + "colonne gauche " + (cl.HasValue ? cl.Value.transform.name + " @ z " + cl.Value.point.z.ToString("F2") : "non touchée") + ", droite " + (cr.HasValue ? "z " + cr.Value.point.z.ToString("F2") : "non touchée") + ", haut (y 16.5) " + (ct.HasValue ? "z " + ct.Value.point.z.ToString("F2") : "non touché") + " (attendu Proscenium à z ≈ 5.75) ; ouverture : axe (0, 5) → " + (open.HasValue ? open.Value.transform.name + " z " + open.Value.point.z.ToString("F1") : "aucun") + " (attendu > 13), vers les vents / cuivres extrêmes → " + (open2.HasValue ? open2.Value.transform.name + " z " + open2.Value.point.z.ToString("F1") : "aucun") + " / " + (open3.HasValue ? open3.Value.transform.name + " z " + open3.Value.point.z.ToString("F1") : "aucun") + " (attendu > 10) ; galeries " + (gr != null ? "z " + gr.bounds.min.z.ToString("F1") + " → " + gr.bounds.max.z.ToString("F1") : "?") + " et fauteuils derrière le joueur=" + behind);
             if (!geomOk) problems++;
+            return problems;
+        }
+
+        // ---------------------------------------------------------------- v9 : transitions de l'EnvironmentController
+
+        /// <summary>Any State → Rave (Rave, Level < ~0.001) et Any State → ToOpera (Reset, Level > ~0.999), sans exit time, durée 0, sans transition vers soi ;
+        /// aucune transition directe entre états sauf ToOpera → Opera par exit time.</summary>
+        static int CheckEnvironmentTransitions(StringBuilder sb, AnimatorStateMachine sm)
+        {
+            int problems = 0;
+            int anyRave = 0, anyOpera = 0, bad = 0;
+            foreach (AnimatorStateTransition t in sm.anyStateTransitions)
+            {
+                bool rave = false, reset = false, levelLow = false, levelHigh = false;
+                foreach (AnimatorCondition c in t.conditions)
+                {
+                    if (c.parameter == "Rave" && c.mode == AnimatorConditionMode.If) rave = true;
+                    if (c.parameter == "Reset" && c.mode == AnimatorConditionMode.If) reset = true;
+                    if (c.parameter == MaestroGreybox.LevelParameter && c.mode == AnimatorConditionMode.Less && c.threshold < 0.01f) levelLow = true;
+                    if (c.parameter == MaestroGreybox.LevelParameter && c.mode == AnimatorConditionMode.Greater && c.threshold > 0.99f) levelHigh = true;
+                }
+                bool shape = !t.hasExitTime && t.duration < 1e-4f && !t.canTransitionToSelf && t.destinationState != null;
+                if (shape && t.destinationState.name == "Rave" && rave && levelLow && !reset) anyRave++;
+                else if (shape && t.destinationState.name == "ToOpera" && reset && levelHigh && !rave) anyOpera++;
+                else bad++;
+            }
+            int direct = 0, back = 0;
+            var directNames = new List<string>();
+            foreach (ChildAnimatorState cs in sm.states)
+                foreach (AnimatorStateTransition t in cs.state.transitions)
+                {
+                    if (cs.state.name == "ToOpera" && t.destinationState != null && t.destinationState.name == "Opera" && t.hasExitTime && Mathf.Abs(t.exitTime - 1f) < 1e-3f && t.conditions.Length == 0) back++;
+                    else { direct++; directNames.Add(cs.state.name + "→" + (t.destinationState != null ? t.destinationState.name : "?")); }
+                }
+            bool ok = anyRave == 1 && anyOpera == 1 && bad == 0 && back == 1 && direct == 0;
+            sb.AppendLine((ok ? "Transitions OK : " : "PROBLEME transitions : ") + "Any State → Rave (Rave, Level < 0.01) ×" + anyRave + ", Any State → ToOpera (Reset, Level > 0.99) ×" + anyOpera + ", autres Any State " + bad + ", ToOpera → Opera par exit time ×" + back + ", transitions directes " + direct + (direct > 0 ? " (" + string.Join(", ", directNames) + ")" : "") + " (attendu 1 / 1 / 0 / 1 / 0, durée 0, sans exit time, sans transition vers soi)");
+            if (!ok) problems++;
             return problems;
         }
 
@@ -1353,9 +1423,74 @@ namespace Maestro.EditorTools
             sb.AppendLine("Captures orchestre : " + pours.Length + " lumière(s) du groupe Poursuites allumées pour la première, éteintes pour la seconde, rallumées ensuite.");
         }
 
+        public const int MaskLayer = 31; // calque libre (non nommé dans TagManager) utilisé le temps d'un rendu de masque
+
         public static void CaptureView(StringBuilder sb, Vector3 position, Quaternion rotation, float fov, string outPath)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(outPath));
+            Texture2D tex = Render(sb, position, rotation, fov, true, -1, CameraClearFlags.Skybox, Color.black, false);
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(outPath));
+                Color32[] px = tex.GetPixels32();
+                long sum = 0;
+                foreach (var p in px) sum += p.r + p.g + p.b;
+                float avg = sum / (3f * px.Length);
+                File.WriteAllBytes(outPath, tex.EncodeToPNG());
+                sb.AppendLine("Capture écrite : " + outPath + " (" + tex.width + "x" + tex.height + ", depuis " + position.ToString("F1") + ", luminosité moyenne " + avg.ToString("F1") + "/255)");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(tex); }
+        }
+
+        /// <summary>v9 : capture (écrite dans outPath si non vide) puis, pour chaque groupe de renderers, couleur moyenne (0-255) des pixels de l'image couverts par
+        /// ce groupe, obtenue par un rendu de masque (groupe seul sur le calque MaskLayer, fond magenta, sans post-process) ; coverage = part de l'image couverte.</summary>
+        public static void CaptureAndMeasure(StringBuilder sb, Vector3 position, Quaternion rotation, float fov, string outPath, Renderer[][] groups, out Color[] means, out float[] coverages)
+        {
+            means = new Color[groups.Length];
+            coverages = new float[groups.Length];
+            Texture2D full = Render(sb, position, rotation, fov, true, -1, CameraClearFlags.Skybox, Color.black, false);
+            try
+            {
+                if (!string.IsNullOrEmpty(outPath))
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(outPath));
+                    File.WriteAllBytes(outPath, full.EncodeToPNG());
+                    sb.AppendLine("Capture écrite : " + outPath + " (" + full.width + "x" + full.height + ", depuis " + position.ToString("F1") + ")");
+                }
+                Color32[] px = full.GetPixels32();
+                for (int g = 0; g < groups.Length; g++)
+                {
+                    Renderer[] rs = groups[g];
+                    var layers = new int[rs.Length];
+                    for (int i = 0; i < rs.Length; i++) { layers[i] = rs[i].gameObject.layer; rs[i].gameObject.layer = MaskLayer; }
+                    Texture2D mask = null;
+                    try
+                    {
+                        mask = Render(sb, position, rotation, fov, false, 1 << MaskLayer, CameraClearFlags.SolidColor, new Color(1f, 0f, 1f, 1f), false);
+                        Color32[] mp = mask.GetPixels32();
+                        double r = 0, gg = 0, b = 0;
+                        int n = 0;
+                        for (int i = 0; i < mp.Length && i < px.Length; i++)
+                        {
+                            Color32 m = mp[i];
+                            if (m.r == 255 && m.g == 0 && m.b == 255) continue;
+                            r += px[i].r; gg += px[i].g; b += px[i].b; n++;
+                        }
+                        coverages[g] = px.Length > 0 ? n / (float)px.Length : 0f;
+                        means[g] = n > 0 ? new Color((float)(r / n), (float)(gg / n), (float)(b / n), 255f) : Color.black;
+                    }
+                    finally
+                    {
+                        for (int i = 0; i < rs.Length; i++) rs[i].gameObject.layer = layers[i];
+                        if (mask != null) UnityEngine.Object.DestroyImmediate(mask);
+                    }
+                }
+            }
+            finally { UnityEngine.Object.DestroyImmediate(full); }
+        }
+
+        /// <summary>Rendu 1600 × 900 par une caméra temporaire (SingleCameraRequest URP, repli Camera.Render) ; la texture retournée est à détruire par l'appelant.</summary>
+        static Texture2D Render(StringBuilder sb, Vector3 position, Quaternion rotation, float fov, bool postProcess, int cullingMask, CameraClearFlags clear, Color background, bool alpha)
+        {
             var go = new GameObject("Maestro_TempCamera");
             go.hideFlags = HideFlags.HideAndDontSave;
             Camera cam = go.AddComponent<Camera>();
@@ -1363,12 +1498,13 @@ namespace Maestro.EditorTools
             cam.fieldOfView = fov;
             cam.nearClipPlane = 0.05f;
             cam.farClipPlane = 400f;
-            cam.clearFlags = CameraClearFlags.Skybox;
-            try { cam.GetUniversalAdditionalCameraData().renderPostProcessing = true; } catch (Exception) { }
+            cam.clearFlags = clear;
+            cam.backgroundColor = background;
+            cam.cullingMask = cullingMask;
+            try { cam.GetUniversalAdditionalCameraData().renderPostProcessing = postProcess; } catch (Exception) { }
             const int w = 1600, h = 900;
             var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32);
             rt.Create();
-            Texture2D tex = null;
             try
             {
                 bool rendered = false;
@@ -1394,20 +1530,14 @@ namespace Maestro.EditorTools
                 }
                 RenderTexture prev = RenderTexture.active;
                 RenderTexture.active = rt;
-                tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+                var tex = new Texture2D(w, h, alpha ? TextureFormat.RGBA32 : TextureFormat.RGB24, false);
                 tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
                 tex.Apply();
                 RenderTexture.active = prev;
-                Color32[] px = tex.GetPixels32();
-                long sum = 0;
-                foreach (var p in px) sum += p.r + p.g + p.b;
-                float avg = sum / (3f * px.Length);
-                File.WriteAllBytes(outPath, tex.EncodeToPNG());
-                sb.AppendLine("Capture écrite : " + outPath + " (" + w + "x" + h + ", depuis " + position.ToString("F1") + ", luminosité moyenne " + avg.ToString("F1") + "/255)");
+                return tex;
             }
             finally
             {
-                if (tex != null) UnityEngine.Object.DestroyImmediate(tex);
                 rt.Release();
                 UnityEngine.Object.DestroyImmediate(rt);
                 UnityEngine.Object.DestroyImmediate(go);

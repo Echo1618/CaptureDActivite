@@ -53,8 +53,8 @@ namespace Maestro.EditorTools
         public const string SkyboxMaterialName = "M_NightSky";
         public static readonly string[] AnchorNames = { "Anchor_Strings", "Anchor_Vent", "Anchor_Brass", "Anchor_Percution", "Anchor_Speakers" };
         public static readonly string[] EnvironmentGroups = { "Stage", "OperaShell", "CastleShell", "PostProcess" };
-        public static readonly string[] DebugButtons = { "Rave", "Reset", "Drop caissons", "Musiciens : Play", "Musiciens : Stop", "Musiciens : Headbang", "Spots on/off", "Lasers on/off", "Poursuites on/off", "Fermer" };
-        public static readonly string[] DebugButtonMethods = { "OnRave", "OnReset", "OnDrop", "OnMusiciansPlay", "OnMusiciansStop", "OnMusiciansHeadbang", "OnToggleSpots", "OnToggleLasers", "OnTogglePoursuites", "OnClose" };
+        public static readonly string[] DebugButtons = { "Rave", "Reset", "Drop caissons", "Musiciens : Play", "Musiciens : Stop", "Musiciens : Headbang", "Spots on/off", "Lasers on/off", "Poursuites on/off", "Highlight test", "Fermer" };
+        public static readonly string[] DebugButtonMethods = { "OnRave", "OnReset", "OnDrop", "OnMusiciansPlay", "OnMusiciansStop", "OnMusiciansHeadbang", "OnToggleSpots", "OnToggleLasers", "OnTogglePoursuites", "OnHighlightTest", "OnClose" };
         public const float DebugButtonHeightPx = 80f, DebugButtonGapPx = 4f, DebugPanelWidthPx = 600f, DebugPanelTitlePx = 30f;
         /// <summary>Rangée du bouton (deux par rangée, le dernier « Fermer » seul sur la dernière).</summary>
         public static int DebugButtonRow(int index) { return index == DebugButtons.Length - 1 ? Mathf.CeilToInt((DebugButtons.Length - 1) / 2f) : index / 2; }
@@ -261,6 +261,22 @@ namespace Maestro.EditorTools
         public static readonly Color AmbientOpera = new Color(0.40f, 0.32f, 0.26f);
         public static readonly Color FogNight = new Color(0.02f, 0.03f, 0.08f);
 
+        // v9 : réflexions d'environnement plates (cubemap uniforme = ambiant opéra, recoloré en Play Mode par EnvironmentMood) et gardes des transitions Any State.
+        // Diagnostic du 23/10/2026 : le cubemap « Default-Skybox-Cubemap » (skybox procédurale, bleu-cyan) teintait galeries, murs et fauteuils dès que l'ambiant
+        // baissait pendant la transition (réflexions +8/+15/+18 sur 255 en R/G/B à 1,5 s, terme constant sans texture) ; EnvironmentMood ne touchait aucun matériau.
+        public const string FlatReflectionName = "CM_FlatReflection";
+        public const int FlatReflectionSize = 4;
+        public const string LevelParameter = "Level";
+        public const float LevelRestEpsilon = 0.001f;
+
+        // v10 : surbrillance de section / musicien (SectionHighlight, émission par MaterialPropertyBlock) ; mot-clé _EMISSION activé sur ces matériaux (émission noire)
+        public static readonly string[] HighlightMaterials = { "M_Strings", "M_Vent", "M_Brass", "M_Percution", "M_Skin" };
+        public const float HighlightSoft = 0.8f;
+        public const float HighlightStrong = 2.5f;
+        public const float HighlightPulseAmplitude = 0.5f;
+        public const float HighlightPulseHz = 1f;
+        public const float HighlightFade = 0.15f;
+
         // v8 : matériaux des capsules (couleurs v1 × 1.15 plafonnées, Smoothness 0.35)
         public const float MusicianSmoothness = 0.35f;
         public const float MusicianColorGain = 1.15f;
@@ -277,6 +293,7 @@ namespace Maestro.EditorTools
         {
             public Material stone, stoneDark, wood, metal, chrome, torch, brazier, cyan, magenta, moon, red, blue;
             public Material strings, vent, brass, percu, skin, velvet, gold, marble, plaster, chandelier, sky;
+            public Cubemap flatRefl;
         }
 
         static StringBuilder _sb;
@@ -331,9 +348,9 @@ namespace Maestro.EditorTools
                 EnsureRigPostProcessing(scene);
 
                 Dress();
-                SetupSceneLighting(scene, m.sky, dir);
+                SetupSceneLighting(scene, m.sky, m.flatRefl, dir);
                 SaveAll(sb);
-                Log("Greybox v8 terminé.");
+                Log("Greybox v9 terminé.");
             }
             finally
             {
@@ -394,7 +411,7 @@ namespace Maestro.EditorTools
         }
 
         /// <summary>Réglages de la scène en mode édition = état opéra (rave = 0) ; EnvironmentMood prend le relais en Play Mode.</summary>
-        static void SetupSceneLighting(Scene scene, Material sky, Light dir)
+        static void SetupSceneLighting(Scene scene, Material sky, Cubemap flatRefl, Light dir)
         {
             Vector3 toScene = (new Vector3(0f, 0f, 10f) - MoonPos).normalized;
             dir.transform.rotation = Quaternion.LookRotation(toScene, Vector3.up);
@@ -410,8 +427,11 @@ namespace Maestro.EditorTools
             RenderSettings.fogDensity = 0f;
             RenderSettings.fogColor = FogNight;
             RenderSettings.skybox = sky;
+            // v9 : réflexions d'environnement plates (le cubemap de la skybox teintait le théâtre en bleu-cyan dès que l'ambiant baissait)
+            RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
+            RenderSettings.customReflectionTexture = flatRefl;
             float elev = Mathf.Atan2(MoonPos.y, new Vector2(MoonPos.x, MoonPos.z - 10f).magnitude) * Mathf.Rad2Deg;
-            Log("Éclairage mode édition = opéra : Directional orientée lune (élévation " + elev.ToString("F0") + "°) intensité 0, ambiante " + AmbientOpera + ", brouillard off, skybox " + SkyboxMaterialName + ". " + MainCameraName + " non touchée.");
+            Log("Éclairage mode édition = opéra : Directional orientée lune (élévation " + elev.ToString("F0") + "°) intensité 0, ambiante " + AmbientOpera + ", brouillard off, skybox " + SkyboxMaterialName + ", réflexions Custom = " + FlatReflectionName + " (cubemap uniforme, ambiant opéra)" + ". " + MainCameraName + " non touchée.");
         }
 
         [MenuItem("Tools/Maestro/Save Scene And Assets")]
@@ -468,6 +488,8 @@ namespace Maestro.EditorTools
             m.brass      = Mat("M_Brass",           MusicianBaseColors["M_Brass"], 0f, MusicianSmoothness);
             m.percu      = Mat("M_Percution",       MusicianBaseColors["M_Percution"], 0f, MusicianSmoothness);
             m.skin       = Mat("M_Skin",            new Color(0.90f, 0.78f, 0.62f), 0f, 0.4f);
+            // v10 : mot-clé _EMISSION activé (émission noire) sur les capsules et la peau, pour la surbrillance par MaterialPropertyBlock
+            foreach (Material em in new[] { m.strings, m.vent, m.brass, m.percu, m.skin }) EnableEmissionKeyword(em);
             // v3 : opéra
             m.velvet     = Mat("M_Velvet",          new Color(0.35f, 0.03f, 0.06f), 0f, 0.2f);
             m.gold       = Mat("M_Gold",            new Color(1.00f, 0.78f, 0.35f), 0.9f, 0.8f, new Color(1.00f, 0.78f, 0.35f), 0.4f);
@@ -475,7 +497,8 @@ namespace Maestro.EditorTools
             m.plaster    = Mat("M_Plaster",         new Color(0.93f, 0.88f, 0.78f), 0f, 0.3f, null, 0f, true);
             m.chandelier = Mat("M_Chandelier",      new Color(1.00f, 0.92f, 0.75f), 0f, 0.5f, new Color(1.00f, 0.92f, 0.75f), 3f);
             m.sky        = SkyboxMaterial();
-            Log(LitMaterialNames.Length + " matériaux URP/Lit + " + SkyboxMaterialName + " (Skybox/Procedural) créés ou mis à jour dans " + MatDir + " (M_Plaster : Render Face = Both).");
+            m.flatRefl   = FlatReflectionAsset();
+            Log(LitMaterialNames.Length + " matériaux URP/Lit + " + SkyboxMaterialName + " (Skybox/Procedural) créés ou mis à jour dans " + MatDir + " (M_Plaster : Render Face = Both ; v10 : _EMISSION activé, émission noire, sur " + string.Join("/", HighlightMaterials) + ").");
             return m;
         }
 
@@ -509,6 +532,37 @@ namespace Maestro.EditorTools
             if (isNew) AssetDatabase.CreateAsset(mat, path);
             else EditorUtility.SetDirty(mat);
             return mat;
+        }
+
+        /// <summary>v10 : mot-clé _EMISSION activé avec une émission noire (la surbrillance l'écrit par MaterialPropertyBlock) ; flags Realtime
+        /// pour que la validation URP (BaseShaderGUI, qui exige AnyEmissive) ne désactive pas le mot-clé.</summary>
+        static void EnableEmissionKeyword(Material mat)
+        {
+            mat.EnableKeyword("_EMISSION");
+            mat.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            mat.SetColor("_EmissionColor", Color.black);
+            EditorUtility.SetDirty(mat);
+        }
+
+        /// <summary>v9 : cubemap uniforme (RGBAHalf linéaire, 4 px) de la couleur ambiante opéra, réutilisé en place (GUID conservé).</summary>
+        static Cubemap FlatReflectionAsset()
+        {
+            string path = MatDir + "/" + FlatReflectionName + ".cubemap";
+            Cubemap cm = AssetDatabase.LoadAssetAtPath<Cubemap>(path);
+            if (cm == null || cm.width != FlatReflectionSize)
+            {
+                if (cm != null) AssetDatabase.DeleteAsset(path);
+                cm = new Cubemap(FlatReflectionSize, TextureFormat.RGBAHalf, false);
+                cm.name = FlatReflectionName;
+                AssetDatabase.CreateAsset(cm, path);
+            }
+            var px = new Color[FlatReflectionSize * FlatReflectionSize];
+            Color c = AmbientOpera.linear;
+            for (int i = 0; i < px.Length; i++) px[i] = c;
+            for (int f = 0; f < 6; f++) cm.SetPixels(px, (CubemapFace)f);
+            cm.Apply(false, false);
+            EditorUtility.SetDirty(cm);
+            return cm;
         }
 
         static Material SkyboxMaterial()
@@ -893,6 +947,7 @@ namespace Maestro.EditorTools
             AnimatorController c = NewController("EnvironmentController");
             c.AddParameter("Rave", AnimatorControllerParameterType.Trigger);
             c.AddParameter("Reset", AnimatorControllerParameterType.Trigger);
+            c.AddParameter(LevelParameter, AnimatorControllerParameterType.Float);
             AnimatorStateMachine sm = c.layers[0].stateMachine;
             AnimatorState sOpera = sm.AddState("Opera", new Vector3(0f, 0f, 0f));
             AnimatorState sRave = sm.AddState("Rave", new Vector3(320f, -80f, 0f));
@@ -901,16 +956,32 @@ namespace Maestro.EditorTools
             sRave.motion = toRave;
             sToOpera.motion = toOpera;
             sm.defaultState = sOpera;
-            Transition(sOpera, sRave, "Rave", 0f);
-            Transition(sRave, sToOpera, "Reset", 0f);
-            Transition(sToOpera, sRave, "Rave", 0f);
+            // v9 : transitions Any State gardées par Level (= rave, recopié chaque frame par EnvironmentMood) : elles ne partent que des états au repos
+            // (Opera → Rave, Rave installé → ToOpera), durée 0, sans exit time, sans transition vers soi. En pleine transition le déclencheur reste en attente et
+            // EnvironmentMood relance l'état inverse à l'instant miroir (Anim_ToOpera(t) = Anim_ToRave(D − t)) : aucun saut.
+            AnimatorStateTransition anyRave = sm.AddAnyStateTransition(sRave);
+            anyRave.hasExitTime = false;
+            anyRave.exitTime = 0f;
+            anyRave.hasFixedDuration = true;
+            anyRave.duration = 0f;
+            anyRave.canTransitionToSelf = false;
+            anyRave.AddCondition(AnimatorConditionMode.If, 0f, "Rave");
+            anyRave.AddCondition(AnimatorConditionMode.Less, LevelRestEpsilon, LevelParameter);
+            AnimatorStateTransition anyOpera = sm.AddAnyStateTransition(sToOpera);
+            anyOpera.hasExitTime = false;
+            anyOpera.exitTime = 0f;
+            anyOpera.hasFixedDuration = true;
+            anyOpera.duration = 0f;
+            anyOpera.canTransitionToSelf = false;
+            anyOpera.AddCondition(AnimatorConditionMode.If, 0f, "Reset");
+            anyOpera.AddCondition(AnimatorConditionMode.Greater, 1f - LevelRestEpsilon, LevelParameter);
             AnimatorStateTransition back = sToOpera.AddTransition(sOpera);
             back.hasExitTime = true;
             back.exitTime = 1f;
             back.hasFixedDuration = true;
             back.duration = 0f;
             EditorUtility.SetDirty(c);
-            Log("EnvironmentController : Opera (défaut) → Rave sur trigger Rave (Anim_ToRave " + D + " s) ; Rave → ToOpera sur trigger Reset (Anim_ToOpera " + D + " s) → Opera. Coupole animée : " + domePath + " (repos " + domeRest.ToString("F1") + " échelle " + domeScale.ToString("F1") + " → +" + DomeRise + " m, échelle " + DomeEndScale + "). Pas de trigger Night.");
+            Log("EnvironmentController (v9) : Opera (défaut) ; Any State → Rave sur trigger Rave si Level < " + LevelRestEpsilon + " (Anim_ToRave " + D + " s) ; Any State → ToOpera sur trigger Reset si Level > " + (1f - LevelRestEpsilon) + " (Anim_ToOpera " + D + " s) → Opera par exit time ; sans transition vers soi ; en pleine transition EnvironmentMood reprend l'état inverse à l'instant miroir. Coupole animée : " + domePath + " (repos " + domeRest.ToString("F1") + " échelle " + domeScale.ToString("F1") + " → +" + DomeRise + " m, échelle " + DomeEndScale + "). Pas de trigger Night.");
             return c;
         }
 
@@ -1005,6 +1076,8 @@ namespace Maestro.EditorTools
             mood.moonRenderer = moonRenderer;
             mood.moonMaxScale = MoonScale;
             mood.nightSkybox = m.sky;
+            mood.flatReflection = m.flatRefl;
+            mood.levelParameter = LevelParameter;
             mood.ambientOpera = AmbientOpera;
             mood.fogNight = FogNight;
 
@@ -1291,6 +1364,14 @@ namespace Maestro.EditorTools
             float halfBody = MusicianBodyRadius, margin = SectionColliderMargin;
             bc.center = new Vector3((minX + maxX) * 0.5f, 1f, (minZ + maxZ) * 0.5f);
             bc.size = new Vector3((maxX - minX) + 2f * (halfBody + margin), 2f, (maxZ - minZ) + 2f * (halfBody + margin));
+            // v10 : surbrillance de section / musicien (contrat devs : SetSectionHighlighted / SetMusicianHighlighted / ClearAll), couleur = base du matériau de section
+            SectionHighlight hl = root.AddComponent<SectionHighlight>();
+            hl.sectionColor = bodyMat.GetColor("_BaseColor");
+            hl.softIntensity = HighlightSoft;
+            hl.strongIntensity = HighlightStrong;
+            hl.pulseAmplitude = HighlightPulseAmplitude;
+            hl.pulseHz = HighlightPulseHz;
+            hl.fadeSeconds = HighlightFade;
             SavePrefab(root, InstrDir + "/" + name + ".prefab");
             root.transform.SetPositionAndRotation(anchor.position, anchor.rotation);
             Log(name + " : " + layout.Length + " musiciens (x " + minX + " → " + maxX + ", z " + minZ + " → " + maxZ + "), collider de section " + bc.size.ToString("F2") + " centre " + bc.center.ToString("F2") + ", instance sur " + anchor.name);
@@ -1456,6 +1537,8 @@ namespace Maestro.EditorTools
                 cb.selectedColor = cb.normalColor;
                 btn.colors = cb;
                 TextMeshProUGUI label = UIText("Label", b.transform, DebugButtons[i], font, 28f);
+                if (DebugButtonMethods[i] == "OnRave") dp.raveLabel = label; // v9 : bascule Rave / Retour théâtre, libellé piloté par le panneau
+                if (DebugButtonMethods[i] == "OnHighlightTest") dp.highlightLabel = label; // v10 : étape courante du cycle de surbrillance
                 Stretch(label.rectTransform);
                 label.enableAutoSizing = true;
                 label.fontSizeMin = 14f;
@@ -1488,7 +1571,7 @@ namespace Maestro.EditorTools
             dp.progressImage = fill;
             panel.SetActive(false);
             SavePrefab(root, SystemsDir + "/DebugPanel.prefab");
-            Log("DebugPanel : canvas World Space " + (DebugPanelWidthPx * 0.001f).ToString("F2") + " × " + (DebugPanelHeightPx * 0.001f).ToString("F3") + " m, " + DebugButtons.Length + " boutons (0.08 m) câblés sur MaestroArtDebugPanel (v8 : « Poursuites on/off » en dixième), Tracked Device Graphic Raycaster, panneau caché au départ.");
+            Log("DebugPanel : canvas World Space " + (DebugPanelWidthPx * 0.001f).ToString("F2") + " × " + (DebugPanelHeightPx * 0.001f).ToString("F3") + " m, " + DebugButtons.Length + " boutons (0.08 m) câblés sur MaestroArtDebugPanel (v8 : « Poursuites on/off » en dixième ; v9 : « Rave » bascule Rave / Retour théâtre, libellé dans raveLabel), Tracked Device Graphic Raycaster, panneau caché au départ.");
         }
 
         static void EnsureEventSystem(Scene scene)
