@@ -4,7 +4,8 @@ public enum OrchestraCommandType
     SetGlobalFilter,
     SetGroupVolume,
     SetGroupMute,
-    ChangePhase
+    ChangePhase,
+    SetGlobalMute
 }
 
 public readonly struct OrchestraCommand

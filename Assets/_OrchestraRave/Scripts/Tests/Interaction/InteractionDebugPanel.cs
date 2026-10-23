@@ -6,46 +6,18 @@ using UnityEngine;
 public class InteractionDebugPanel : MonoBehaviour
 {
     [Header("References")]
-    [SerializeField]
-    private OrchestraInteractionManager interactionManager;
-
-    [SerializeField]
-    private InstrumentSelector instrumentSelector;
+    [SerializeField] private OrchestraInteractionManager interactionManager;
+    [SerializeField] private InstrumentSelector instrumentSelector;
 
     [Header("Display")]
-    [SerializeField]
-    private bool visible = true;
+    [SerializeField] private bool visible = true;
+    [SerializeField] private float preferredWidth = 430f;
+    [SerializeField] private int maxLogEntries = 12;
 
-    [SerializeField]
-    private int maxLogEntries = 12;
-
-    [SerializeField]
-    private float panelWidth = 440f;
-
-    private readonly List<string> eventLog =
-        new List<string>();
-
+    private readonly List<string> eventLog = new List<string>();
     private Vector2 scrollPosition;
 
     public bool IsVisible => visible;
-
-    // --------------------------------------------------
-    // EVENTS
-    // --------------------------------------------------
-
-    private void OnEnable()
-    {
-        OrchestraEventBus.OnCommand += HandleCommand;
-        OrchestraEventBus.OnGroupSelectionChanged +=
-            HandleSelectionChanged;
-    }
-
-    private void OnDisable()
-    {
-        OrchestraEventBus.OnCommand -= HandleCommand;
-        OrchestraEventBus.OnGroupSelectionChanged -=
-            HandleSelectionChanged;
-    }
 
     public void ToggleVisible()
     {
@@ -57,37 +29,47 @@ public class InteractionDebugPanel : MonoBehaviour
         visible = value;
     }
 
-    private void HandleCommand(OrchestraCommand command)
+    private void OnEnable()
+    {
+        OrchestraEventBus.OnCommand += HandleCommand;
+        OrchestraEventBus.OnGroupSelectionChanged += HandleSelectionChanged;
+    }
+
+    private void OnDisable()
+    {
+        OrchestraEventBus.OnCommand -= HandleCommand;
+        OrchestraEventBus.OnGroupSelectionChanged -= HandleSelectionChanged;
+    }
+
+    private void HandleCommand(OrchestraCommand cmd)
     {
         string message;
 
-        switch (command.Type)
+        switch (cmd.Type)
         {
             case OrchestraCommandType.SetGlobalVolume:
             case OrchestraCommandType.SetGlobalFilter:
-                message =
-                    $"{command.Type}: {command.Value:F2}";
+                message = $"{cmd.Type}: {cmd.Value:F2}";
+                break;
+
+            case OrchestraCommandType.SetGlobalMute:
+                message = $"SetGlobalMute: {cmd.IsMuted}";
                 break;
 
             case OrchestraCommandType.SetGroupVolume:
-                message =
-                    $"{command.Type}: {command.Target} " +
-                    $"= {command.Value:F2}";
+                message = $"SetGroupVolume: {cmd.Target} = {cmd.Value:F2}";
                 break;
 
             case OrchestraCommandType.SetGroupMute:
-                message =
-                    $"{command.Type}: {command.Target} " +
-                    $"= {command.IsMuted}";
+                message = $"SetGroupMute: {cmd.Target} = {cmd.IsMuted}";
                 break;
 
             case OrchestraCommandType.ChangePhase:
-                message =
-                    $"ChangePhase: {command.Phase}";
+                message = $"ChangePhase: {cmd.Phase}";
                 break;
 
             default:
-                message = command.Type.ToString();
+                message = cmd.Type.ToString();
                 break;
         }
 
@@ -98,165 +80,103 @@ public class InteractionDebugPanel : MonoBehaviour
         InstrumentGroupId group,
         bool selected)
     {
-        AddLog(
-            $"Selection: {group} = {selected}"
-        );
+        AddLog($"Selection: {group} = {selected}");
     }
 
     private void AddLog(string message)
     {
-        string time = DateTime.Now.ToString("HH:mm:ss");
-
-        eventLog.Insert(0, $"[{time}] {message}");
+        eventLog.Insert(0, $"[{Time.time:F1}] {message}");
 
         int limit = Mathf.Max(1, maxLogEntries);
 
         if (eventLog.Count > limit)
-        {
-            eventLog.RemoveRange(
-                limit,
-                eventLog.Count - limit
-            );
-        }
+            eventLog.RemoveRange(limit, eventLog.Count - limit);
     }
-
-    // --------------------------------------------------
-    // DEBUG UI
-    // --------------------------------------------------
 
     private void OnGUI()
     {
         if (!visible)
             return;
 
-        float width = Mathf.Min(
-            panelWidth,
-            Screen.width - 20f
+        Rect rect = DebugPanelLayout.GetRect(
+            DebugPanelLayout.PanelSide.Left,
+            preferredWidth
         );
 
-        float height = Mathf.Min(
-            650f,
-            Screen.height - 20f
-        );
+        GUILayout.BeginArea(rect, GUI.skin.box);
+        scrollPosition = GUILayout.BeginScrollView(scrollPosition);
 
-        if (width <= 0f || height <= 0f)
-            return;
+        GUILayout.Label("ORCHESTRA RAVE - INTERACTION");
+        GUILayout.Space(8);
 
-        GUILayout.BeginArea(
-            new Rect(10f, 10f, width, height),
-            GUI.skin.box
-        );
-
-        scrollPosition = GUILayout.BeginScrollView(
-            scrollPosition
-        );
-
-        DrawHeader();
         DrawGlobalState();
         DrawPointingState();
         DrawGroups();
-        DrawEventLog();
-        DrawControls();
+        DrawEvents();
 
         GUILayout.EndScrollView();
         GUILayout.EndArea();
     }
 
-    private void DrawHeader()
-    {
-        GUILayout.Label("ORCHESTRA RAVE — DEBUG");
-        GUILayout.Label("Interaction / EventBus");
-        GUILayout.Space(10f);
-    }
-
     private void DrawGlobalState()
     {
-        GUILayout.Label("=== GLOBAL STATE ===");
+        GUILayout.Label("=== GLOBAL ===");
 
         if (interactionManager == null)
         {
-            GUILayout.Label(
-                "InteractionManager : MISSING"
-            );
+            GUILayout.Label("InteractionManager missing");
             return;
         }
 
-        GUILayout.Label(
-            $"Phase : {interactionManager.CurrentPhase}"
-        );
-
-        GUILayout.Label(
-            $"Global volume : " +
-            $"{interactionManager.GlobalVolume:F2}"
-        );
-
-        GUILayout.Label(
-            $"Global filter : " +
-            $"{interactionManager.GlobalFilter:F2}"
-        );
-
-        GUILayout.Space(10f);
+        GUILayout.Label($"Phase: {interactionManager.CurrentPhase}");
+        GUILayout.Label($"Volume: {interactionManager.GlobalVolume:F2}");
+        GUILayout.Label($"Filter: {interactionManager.GlobalFilter:F2}");
+        GUILayout.Label($"Global Mute: {interactionManager.GlobalMuted}");
+        GUILayout.Space(10);
     }
 
     private void DrawPointingState()
     {
-        GUILayout.Label("=== POINTING ===");
+        GUILayout.Label("=== SELECTION ===");
 
         if (instrumentSelector == null)
         {
-            GUILayout.Label(
-                "InstrumentSelector : MISSING"
-            );
+            GUILayout.Label("InstrumentSelector missing");
             return;
         }
 
+        GUILayout.Label($"Hovered: {instrumentSelector.HoveredGroup}");
+        GUILayout.Label($"Candidate: {instrumentSelector.CandidateGroup}");
+        GUILayout.Label($"Armed: {instrumentSelector.SelectionArmed}");
         GUILayout.Label(
-            $"Hovered : {instrumentSelector.HoveredGroup}"
+            $"Interruption: {instrumentSelector.InterruptionTime:F2}s"
         );
 
-        GUILayout.Label(
-            $"Candidate : {instrumentSelector.CandidateGroup}"
-        );
+        float progress = instrumentSelector.ConfirmationProgress01;
+        GUILayout.Label($"Confirmation: {progress * 100f:F0}%");
 
-        GUILayout.Label(
-            $"Armed : {instrumentSelector.SelectionArmed}"
-        );
+        Rect bar = GUILayoutUtility.GetRect(10f, 14f);
+        GUI.Box(bar, GUIContent.none);
 
-        GUILayout.Label(
-            $"Interruption : " +
-            $"{instrumentSelector.InterruptionTime:F2}s"
-        );
+        if (Event.current.type == EventType.Repaint)
+        {
+            GUI.DrawTexture(
+                new Rect(
+                    bar.x,
+                    bar.y,
+                    bar.width * progress,
+                    bar.height
+                ),
+                Texture2D.whiteTexture
+            );
+        }
 
-        float progress =
-            instrumentSelector.ConfirmationProgress01;
-
-        GUILayout.Label(
-            $"Confirmation : {progress * 100f:F0}%"
-        );
-
-        Rect progressRect =
-            GUILayoutUtility.GetRect(100f, 16f);
-
-        GUI.Box(progressRect, GUIContent.none);
-
-        Rect fillRect = new Rect(
-            progressRect.x,
-            progressRect.y,
-            progressRect.width * progress,
-            progressRect.height
-        );
-
-        GUI.DrawTexture(
-            fillRect,
-            Texture2D.whiteTexture
-        );
-
-        GUILayout.Space(10f);
+        GUILayout.Space(10);
     }
 
     private void DrawGroups()
     {
-        GUILayout.Label("=== INSTRUMENT GROUPS ===");
+        GUILayout.Label("=== INSTRUMENTS ===");
 
         if (interactionManager == null)
             return;
@@ -267,60 +187,31 @@ public class InteractionDebugPanel : MonoBehaviour
             if (group == InstrumentGroupId.None)
                 continue;
 
-            bool selected =
-                interactionManager.IsGroupSelected(group);
-
-            bool muted =
-                interactionManager.IsGroupMuted(group);
-
-            float volume =
-                interactionManager.GetGroupVolume(group);
-
-            string selection = selected ? "[X]" : "[ ]";
-            string mute = muted ? "MUTED" : "ACTIVE";
+            bool selected = interactionManager.IsGroupSelected(group);
+            bool muted = interactionManager.IsGroupMuted(group);
+            float volume = interactionManager.GetGroupVolume(group);
 
             GUILayout.Label(
-                $"{selection} {group}"
+                $"{(selected ? "[X]" : "[ ]")} {group}"
             );
-
             GUILayout.Label(
-                $"     Volume: {volume:F2} | {mute}"
+                $"     Vol {volume:F2} | {(muted ? "MUTED" : "ACTIVE")}"
             );
         }
 
-        GUILayout.Space(10f);
+        GUILayout.Space(10);
     }
 
-    private void DrawEventLog()
+    private void DrawEvents()
     {
         GUILayout.Label("=== EVENT LOG ===");
 
         if (eventLog.Count == 0)
-        {
-            GUILayout.Label("No events yet.");
-        }
+            GUILayout.Label("No events");
         else
         {
             foreach (string entry in eventLog)
-            {
                 GUILayout.Label(entry);
-            }
         }
-
-        GUILayout.Space(10f);
-    }
-
-    private void DrawControls()
-    {
-        GUILayout.Label("=== CONTROLS ===");
-
-        GUILayout.Label("Mouse : point at instrument");
-        GUILayout.Label("C : clear selection");
-        GUILayout.Label("M : mute / unmute");
-        GUILayout.Label("Up / Down : global volume");
-        GUILayout.Label("Left / Right : global filter");
-        GUILayout.Label("Page Up / Down : group volume");
-        GUILayout.Label("1 / 2 / 3 : music phase");
-        GUILayout.Label("F2 : show / hide debug");
     }
 }

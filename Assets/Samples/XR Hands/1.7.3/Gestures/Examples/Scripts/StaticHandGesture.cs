@@ -153,7 +153,8 @@ namespace UnityEngine.XR.Hands.Samples.GestureSample
 
         void Awake()
         {
-            m_BackgroundDefaultColor = m_Background.color;
+            if (m_Background != null)
+                m_BackgroundDefaultColor = m_Background.color;
 
             if (m_Highlight)
             {
@@ -192,7 +193,8 @@ namespace UnityEngine.XR.Hands.Samples.GestureSample
             {
                 m_PerformedTriggered = false;
                 m_GestureEnded?.Invoke();
-                m_Background.color = m_BackgroundDefaultColor;
+                if (m_Background != null)
+                    m_Background.color = m_BackgroundDefaultColor;
             }
 
             m_WasDetected = detected;
@@ -209,10 +211,13 @@ namespace UnityEngine.XR.Hands.Samples.GestureSample
                     if (m_Highlight)
                         m_Highlight.enabled = true;
 
-                    foreach (var gesture in m_StaticGestures)
+                    if (m_StaticGestures != null)
                     {
-                        if (gesture != this)
-                            gesture.highlightVisible = false;
+                        foreach (var gesture in m_StaticGestures)
+                        {
+                            if (gesture != null && gesture != this)
+                                gesture.highlightVisible = false;
+                        }
                     }
                 }
             }
