@@ -1,3 +1,4 @@
+
 using UnityEngine;
 
 public class HandTrackingDebugger : MonoBehaviour
@@ -12,6 +13,13 @@ public class HandTrackingDebugger : MonoBehaviour
         if (handTrackingManager == null)
             return;
 
+        // Vérifier le début du pincement à chaque frame.
+        if (handTrackingManager.RightHand.PinchStarted)
+        {
+            Debug.Log("PINCH STARTED - Main droite");
+        }
+
+        // Les informations générales restent affichées une fois par seconde.
         timer += Time.deltaTime;
 
         if (timer < LogInterval)
@@ -23,7 +31,10 @@ public class HandTrackingDebugger : MonoBehaviour
             $"Main gauche suivie : {handTrackingManager.IsLeftHandTracked} | " +
             $"Poignet gauche : {handTrackingManager.LeftHand.WristPosition} | " +
             $"Main droite suivie : {handTrackingManager.IsRightHandTracked} | " +
-            $"Poignet droit : {handTrackingManager.RightHand.WristPosition}"
+            $"Poignet droit : {handTrackingManager.RightHand.WristPosition} | " +
+            $"Main gauche ouverte : {handTrackingManager.LeftHand.IsOpen} | " +
+            $"Main droite en pointage : {handTrackingManager.RightHand.IsPointing} | " +
+            $"Rayon : {handTrackingManager.RightHand.PointingRayDirection}"
         );
     }
 }
