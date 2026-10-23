@@ -53,28 +53,45 @@ namespace Maestro.EditorTools
         public const string SkyboxMaterialName = "M_NightSky";
         public static readonly string[] AnchorNames = { "Anchor_Strings", "Anchor_Vent", "Anchor_Brass", "Anchor_Percution", "Anchor_Speakers" };
         public static readonly string[] EnvironmentGroups = { "Stage", "OperaShell", "CastleShell", "PostProcess" };
-        public static readonly string[] DebugButtons = { "Rave", "Reset", "Drop caissons", "Musiciens : Play", "Musiciens : Stop", "Musiciens : Headbang", "Spots on/off", "Lasers on/off", "Fermer" };
-        public static readonly string[] DebugButtonMethods = { "OnRave", "OnReset", "OnDrop", "OnMusiciansPlay", "OnMusiciansStop", "OnMusiciansHeadbang", "OnToggleSpots", "OnToggleLasers", "OnClose" };
+        public static readonly string[] DebugButtons = { "Rave", "Reset", "Drop caissons", "Musiciens : Play", "Musiciens : Stop", "Musiciens : Headbang", "Spots on/off", "Lasers on/off", "Poursuites on/off", "Fermer" };
+        public static readonly string[] DebugButtonMethods = { "OnRave", "OnReset", "OnDrop", "OnMusiciansPlay", "OnMusiciansStop", "OnMusiciansHeadbang", "OnToggleSpots", "OnToggleLasers", "OnTogglePoursuites", "OnClose" };
+        public const float DebugButtonHeightPx = 80f, DebugButtonGapPx = 4f, DebugPanelWidthPx = 600f, DebugPanelTitlePx = 30f;
+        /// <summary>Rangée du bouton (deux par rangée, le dernier « Fermer » seul sur la dernière).</summary>
+        public static int DebugButtonRow(int index) { return index == DebugButtons.Length - 1 ? Mathf.CeilToInt((DebugButtons.Length - 1) / 2f) : index / 2; }
+        public static float DebugPanelHeightPx { get { return DebugPanelTitlePx + (DebugButtonRow(DebugButtons.Length - 1) + 1) * (DebugButtonHeightPx + DebugButtonGapPx) + DebugButtonGapPx; } }
 
-        // ----- Contrat devs (inchangé depuis la v2 sauf SpeakerX) -----
-        public static readonly Dictionary<string, float[]> SectionX = new Dictionary<string, float[]>
+        // ----- Contrat devs (v8 : 30 musiciens, Anchor_Speakers reculée à z = 3) -----
+        // Positions locales (x, z) des musiciens dans chaque prefab de section ; +Z local = vers le joueur (les ancres sont tournées de 180°).
+        // Strings : deux rangs sur le gradin 1 (rang 2 à z = 1.2 : à 1.4 la capsule de 25 cm de rayon déborderait de 15 cm du nez du gradin, z monde 7.5).
+        // Vent / Brass : un rang, pas 0.8 (à 1.2 le musicien extérieur, x monde ±8.6, tombe hors du gradin 2 qui s'arrête au rayon 13.5).
+        public const float StringsRowStep = 1.2f;
+        public static readonly Dictionary<string, Vector2[]> SectionLayout = new Dictionary<string, Vector2[]>
         {
-            { "Strings",   new[] { -5f, -3f, -1f, 1f, 3f, 5f } },
-            { "Vent",      new[] { -2.25f, -0.75f, 0.75f, 2.25f } },
-            { "Brass",     new[] { -2.25f, -0.75f, 0.75f, 2.25f } },
-            { "Percution", new[] { -2f, 0f, 2f } },
+            { "Strings",   new[] { new Vector2(-5.5f, 0f), new Vector2(-3.3f, 0f), new Vector2(-1.1f, 0f), new Vector2(1.1f, 0f), new Vector2(3.3f, 0f), new Vector2(5.5f, 0f),
+                                   new Vector2(-4.4f, StringsRowStep), new Vector2(-2.2f, StringsRowStep), new Vector2(0f, StringsRowStep), new Vector2(2.2f, StringsRowStep), new Vector2(4.4f, StringsRowStep), new Vector2(6.6f, StringsRowStep) } },
+            { "Vent",      new[] { new Vector2(-2.4f, 0f), new Vector2(-1.6f, 0f), new Vector2(-0.8f, 0f), new Vector2(0f, 0f), new Vector2(0.8f, 0f), new Vector2(1.6f, 0f), new Vector2(2.4f, 0f) } },
+            { "Brass",     new[] { new Vector2(-2.4f, 0f), new Vector2(-1.6f, 0f), new Vector2(-0.8f, 0f), new Vector2(0f, 0f), new Vector2(0.8f, 0f), new Vector2(1.6f, 0f), new Vector2(2.4f, 0f) } },
+            { "Percution", new[] { new Vector2(-2.7f, 0f), new Vector2(-0.9f, 0f), new Vector2(0.9f, 0f), new Vector2(2.7f, 0f) } },
         };
+        public static readonly Dictionary<string, int> SectionTier = new Dictionary<string, int> { { "Strings", 1 }, { "Vent", 2 }, { "Brass", 2 }, { "Percution", 3 } };
+        public const int MusicianCount = 30;
+        public const float MusicianBodyRadius = 0.25f;
+        public const float SectionColliderMargin = 1f;
         public static readonly Dictionary<string, Vector3> AnchorPos = new Dictionary<string, Vector3>
         {
             { "Anchor_Strings",   new Vector3(0f, -0.5f, 9f) },
             { "Anchor_Vent",      new Vector3(-5f, 1.5f, 11f) },
             { "Anchor_Brass",     new Vector3(5f, 1.5f, 11f) },
             { "Anchor_Percution", new Vector3(0f, 3.5f, 14.5f) },
-            { "Anchor_Speakers",  new Vector3(0f, -1.5f, 6f) },
+            // v8 : reculée de z = 6 à z = 3 (demandé 4.5) : les segments ±40° du gradin 1 avancent jusqu'à z = 4.46 à |x| = 6.35,
+            // le caisson de 2.63 m de profondeur centré à 4.5 (face arrière 5.77) les traversait encore ; à 3.0 la face arrière est à 4.27.
+            { "Anchor_Speakers",  new Vector3(0f, -1.5f, 3f) },
         };
         // v3 : caissons écartés (ils tombaient devant les cordes à ±2.5 / ±7).
         public static readonly float[] SpeakerX = { -9f, -6f, 6f, 9f };
-        public const float SpeakerRestY = 1.5f;
+        public const float SpeakerHalfHeight = 1.5f;
+        // v8 : repos à 1.52 (base à -1.48) : en mode opéra le sol détecté sous l'ancre est le parterre du théâtre (OuterWalls, remonté à -1.48), pas la cour à -1.5.
+        public const float SpeakerRestY = 1.52f;
         public const float SpeakerHiddenY = 40f;
         public const float SpeakerDropDuration = 2.5f;
         public const int SpotCount = 6;
@@ -121,7 +138,64 @@ namespace Maestro.EditorTools
         public const float ProsceniumSpotIntensity = 6f;
         public const float ProsceniumSpotAngle = 60f;
         public const float ProsceniumSpotRange = 30f;
-        public const int OperaLightCount = 9; // lustre + 6 balcons + 2 avant-scène
+        // v8 : poursuites de scène (groupe OperaShell/Poursuites), pilotées ×1 → ×0 comme les lumières d'opéra.
+        // Demandé : rail sous l'entablement à (y ≈ 16.5, z ≈ 6.5). Mesuré sur Theatre.fbx : le lambrequin des rideaux (bande z ≈ 6.3, de 17.15 jusqu'à y ≈ 14
+        // au centre et 12.5 vers |x| = 9) coupait tous les faisceaux centraux ; le rail est donc accroché sous le plafond de l'ouverture (y 17), derrière
+        // le lambrequin, à z = 7.6 : bouts pris dans les colonnes, cinq faisceaux libres (rayons vérifiés par Verify).
+        public static readonly Vector3 PoursuiteRailPos = new Vector3(0f, 16.3f, 7.6f);
+        public static readonly Vector3 PoursuiteRailSize = new Vector3(30f, 0.15f, 0.15f);
+        public const float PoursuiteProjectorSize = 0.3f;
+        public static readonly Color PoursuiteColor = new Color(1f, 236f / 255f, 210f / 255f);
+        // v8 (passe finale) : avec 12 et portée 20, rien de visible à 14-17 m (URP atténue en 1 sur d² puis fondu de portée : +4 % sur les capsules, luminosité moyenne 50,5 contre 49,2 éteintes) ;
+        // 100 et portée 25 donnent +40 % (Strings, 17 m) à +80 % (Percution, 14 m) sur la face éclairée, sans dépasser 1 (pas de bloom) : luminosité moyenne 54,4.
+        public const float PoursuiteIntensity = 100f;
+        public const float PoursuiteAngle = 32f;
+        public const float PoursuiteInnerAngle = 24f;
+        public const float PoursuiteRange = 25f;
+        public const float PoursuiteTargetHeight = 0.8f; // visée 0.8 m au-dessus du sol de la section (visages)
+        // Strings fait 13 m de large : 32° ne couvre pas depuis un seul point → deux poursuites (x = ±9), chacune sur une moitié ; Vent / Brass à ∓3, Percution au centre.
+        public static readonly string[] PoursuiteNames = { "Poursuite_Strings", "Poursuite_Vent", "Poursuite_Percution", "Poursuite_Brass", "Poursuite_Strings_2" };
+        public static readonly float[] PoursuiteX = { -9f, -3f, 0f, 3f, 9f };
+        public const string FillName = "Fill_Orchestre";
+        public static readonly Vector3 FillPos = new Vector3(0f, 6f, 10f);
+        public static readonly Color FillColor = new Color(1f, 245f / 255f, 230f / 255f);
+        public const float FillIntensity = 3f;
+        public const float FillRange = 12f;
+        public const int PoursuiteCount = 5;
+        public const int OperaLightCount = 15; // lustre + 6 balcons + 2 avant-scène + 5 poursuites + fill
+
+        /// <summary>Position monde d'un musicien de section (ancre tournée de 180° : x et z locaux inversés).</summary>
+        public static Vector3 MusicianWorldPos(string section, Vector2 local)
+        {
+            Vector3 a = AnchorPos["Anchor_" + section];
+            return new Vector3(a.x - local.x, a.y, a.z - local.y);
+        }
+
+        /// <summary>Cible d'une poursuite : centre de la section (ou d'une moitié de Strings : x monde < 0 pour Poursuite_Strings, ≥ 0 pour Poursuite_Strings_2) + 0.8 m.</summary>
+        public static Vector3 PoursuiteTarget(string poursuite)
+        {
+            if (poursuite == "Poursuite_Strings" || poursuite == "Poursuite_Strings_2")
+            {
+                bool left = poursuite == "Poursuite_Strings";
+                Vector3 sum = Vector3.zero;
+                int n = 0;
+                foreach (Vector2 l in SectionLayout["Strings"])
+                {
+                    Vector3 w = MusicianWorldPos("Strings", l);
+                    if (left ? w.x < 0f : w.x >= 0f) { sum += w; n++; }
+                }
+                return sum / Mathf.Max(1, n) + Vector3.up * PoursuiteTargetHeight;
+            }
+            string section = poursuite.Substring("Poursuite_".Length);
+            return AnchorPos["Anchor_" + section] + Vector3.up * PoursuiteTargetHeight;
+        }
+
+        /// <summary>Section éclairée par une poursuite (Poursuite_Strings_2 → Strings).</summary>
+        public static string PoursuiteSection(string poursuite)
+        {
+            string s = poursuite.Substring("Poursuite_".Length);
+            return s.EndsWith("_2") ? s.Substring(0, s.Length - 2) : s;
+        }
 
         // ----- v4 : props Blender (voir blender/README.md ; avec Bake Axis Conversion l'avant des modèles arrive vers -Z) -----
         public const float PlateauModelTiltX = -28f;                 // plateau du Pupitre.fbx : centre à 1.10 m, 2.5 cm d'épaisseur, incliné de 28°
@@ -130,7 +204,7 @@ namespace Maestro.EditorTools
         public const float SocleModelRadius = 0.035f;
         public static readonly Vector3 PanelAnchorModelLocalPos = new Vector3(0f, 1.10f + 0.0125f * Mathf.Cos(28f * Mathf.Deg2Rad), -0.0125f * Mathf.Sin(28f * Mathf.Deg2Rad));
         public static readonly Vector3 PanelAnchorModelLocalEuler = new Vector3(-28f, 0f, 0f);
-        public static readonly Vector3 SpeakerModelLocalPos = new Vector3(0f, -SpeakerRestY, 0f); // pivot base, Speaker_N est le centre du caisson
+        public static readonly Vector3 SpeakerModelLocalPos = new Vector3(0f, -SpeakerHalfHeight, 0f); // pivot base, Speaker_N est le centre du caisson (3 m)
         public static readonly Vector3 BannerModelLocalPos = new Vector3(0f, 6f, -0.1f);         // hampe à y = 17, tissu 6 m vers le bas, devant le mur
         public const float TorchWallOffset = 0.3f;                                               // Torch_N est à 0.3 m de la face du mur
         public static readonly Vector3 TorchFlameCenter = new Vector3(0f, 0.355f, -0.14f);       // Flamme : origine (0, 0.29, -0.14) + 6.5 cm
@@ -147,8 +221,57 @@ namespace Maestro.EditorTools
         {
             { "Strings", new Vector3(10f, 180f, -35f) }, { "Vent", new Vector3(-40f, 180f, 0f) }, { "Brass", new Vector3(-25f, 180f, 0f) }, { "Percution", Vector3.zero },
         };
+
+        // ----- v5 : théâtre à l'italienne (Theatre.fbx) à la place de la coque opéra greybox -----
+        // La conversion de main de l'importeur Unity inverse Z (scène importée vers -Z) : le Model est tourné de 180° sur Y.
+        public static readonly Vector3 TheatreModelEuler = new Vector3(0f, 180f, 0f);
+        public static readonly string[] OperaGreyboxToRemove = { "Sol_Opera", "Murs", "Balcons", "Corniche", "Proscenium", "Dome" };
+        public const string TheatreDomePath = "OperaShell/Model/Ceiling/Dome";
+        public const string GreyboxDomePath = "OperaShell/Dome";
+        public static readonly Vector3 TheatreDomeCenter = new Vector3(0f, 24f, -8f); // calotte : demi-axes 18 (x) × 7 (y) × 14.5 (z), sommet 31, oculus r 1.5
+        public static readonly Vector3 TheatreEntablature = new Vector3(0f, 18.5f, 7f);  // entablement doré du cadre de scène (y 17 → 20)
+        public static readonly Vector3[] TheatreOperaLightPos =
+        {
+            new Vector3(-17f, 9.5f, -6f), new Vector3(17f, 9.5f, -6f), new Vector3(0f, 9.5f, -23f),   // galerie 2 (plancher 8)
+            new Vector3(-17f, 14f, -6f),  new Vector3(17f, 14f, -6f),  new Vector3(0f, 14f, -23f),    // galerie 3 (plancher 12.5)
+        };
+        public const float TheatreFloorLift = 0.02f; // StageFloor et parterre (OuterWalls) à -1.48 : pas de z-fighting avec la cour du Stage
+        public static readonly string[] TheatreLiftedObjects = { "StageFloor", "OuterWalls" };
+        public const StaticEditorFlags TheatreStaticFlags = StaticEditorFlags.OccluderStatic | StaticEditorFlags.OccludeeStatic | StaticEditorFlags.ReflectionProbeStatic; // pas de Batching Static ni ContributeGI : OperaShell bouge
+
+        public static bool TheatreAvailable { get { return MaestroProps.Available(MaestroProps.TheatreName); } }
+        /// <summary>Chemin (depuis Environment) de l'objet coupole animé par EnvironmentController.</summary>
+        public static string DomePath { get { return TheatreAvailable ? TheatreDomePath : GreyboxDomePath; } }
+        public static Vector3 DomeRestPos { get { return TheatreAvailable ? Vector3.zero : DomeCenter; } }
+        public static Vector3 DomeRestScale { get { return TheatreAvailable ? Vector3.one : DomeScale; } }
+
+        /// <summary>Hauteur du plafond au-dessus du point (x, z) : calotte du théâtre si importé, sinon ellipsoïde greybox.</summary>
+        public static float CeilingY(float x, float z)
+        {
+            if (TheatreAvailable)
+            {
+                float dx = x / 18f, dz = (z - TheatreDomeCenter.z) / 14.5f;
+                float k = 1f - dx * dx - dz * dz;
+                return k > 0f ? TheatreDomeCenter.y + 7f * Mathf.Sqrt(k) : TheatreDomeCenter.y;
+            }
+            float hr = DomeScale.x * 0.5f, vr = DomeScale.y * 0.5f;
+            float kk = 1f - (x * x + z * z) / (hr * hr);
+            return kk > 0f ? DomeCenter.y + vr * Mathf.Sqrt(kk) : DomeCenter.y;
+        }
         public static readonly Color AmbientOpera = new Color(0.40f, 0.32f, 0.26f);
         public static readonly Color FogNight = new Color(0.02f, 0.03f, 0.08f);
+
+        // v8 : matériaux des capsules (couleurs v1 × 1.15 plafonnées, Smoothness 0.35)
+        public const float MusicianSmoothness = 0.35f;
+        public const float MusicianColorGain = 1.15f;
+        public static Color Brighten(Color c) { return new Color(Mathf.Min(1f, c.r * MusicianColorGain), Mathf.Min(1f, c.g * MusicianColorGain), Mathf.Min(1f, c.b * MusicianColorGain), 1f); }
+        public static readonly Dictionary<string, Color> MusicianBaseColors = new Dictionary<string, Color>
+        {
+            { "M_Strings",   Brighten(new Color(0.00f, 0.50f, 0.50f)) },
+            { "M_Vent",      Brighten(new Color(0.50f, 0.20f, 0.80f)) },
+            { "M_Brass",     Brighten(new Color(1.00f, 0.45f, 0.35f)) },
+            { "M_Percution", Brighten(new Color(1.00f, 0.70f, 0.20f)) },
+        };
 
         class Mats
         {
@@ -197,7 +320,7 @@ namespace Maestro.EditorTools
                 foreach (string section in SectionPrefabs)
                 {
                     Material bodyMat = section == "Strings" ? m.strings : section == "Vent" ? m.vent : section == "Brass" ? m.brass : m.percu;
-                    BuildSection(section, SectionX[section], bodyMat, m.skin, m.wood, m.metal, musicianCtrl, env.transform.Find("Anchor_" + section));
+                    BuildSection(section, SectionLayout[section], bodyMat, m.skin, m.wood, m.metal, musicianCtrl, env.transform.Find("Anchor_" + section));
                 }
                 BuildSpeakers(m.metal, m.magenta, speakersCtrl, env.transform.Find("Anchor_Speakers"));
                 BuildStageLights(m.metal);
@@ -210,7 +333,7 @@ namespace Maestro.EditorTools
                 Dress();
                 SetupSceneLighting(scene, m.sky, dir);
                 SaveAll(sb);
-                Log("Greybox v4 terminé.");
+                Log("Greybox v8 terminé.");
             }
             finally
             {
@@ -339,10 +462,11 @@ namespace Maestro.EditorTools
             m.moon       = Mat("M_Moon",            new Color(0.85f, 0.90f, 1.00f), 0f, 0.5f, new Color(0.85f, 0.90f, 1.00f), 2f);
             m.red        = Mat("M_BannerRed",       new Color(0.60f, 0.08f, 0.08f), 0f, 0.3f);
             m.blue       = Mat("M_BannerBlue",      new Color(0.08f, 0.15f, 0.55f), 0f, 0.3f);
-            m.strings    = Mat("M_Strings",         new Color(0.00f, 0.50f, 0.50f), 0f, 0.4f);
-            m.vent       = Mat("M_Vent",            new Color(0.50f, 0.20f, 0.80f), 0f, 0.4f);
-            m.brass      = Mat("M_Brass",           new Color(1.00f, 0.45f, 0.35f), 0f, 0.4f);
-            m.percu      = Mat("M_Percution",       new Color(1.00f, 0.70f, 0.20f), 0f, 0.4f);
+            // v8 : capsules des musiciens éclaircies de 15 % (plafonné) et Smoothness 0.35 pour accrocher les poursuites
+            m.strings    = Mat("M_Strings",         MusicianBaseColors["M_Strings"], 0f, MusicianSmoothness);
+            m.vent       = Mat("M_Vent",            MusicianBaseColors["M_Vent"], 0f, MusicianSmoothness);
+            m.brass      = Mat("M_Brass",           MusicianBaseColors["M_Brass"], 0f, MusicianSmoothness);
+            m.percu      = Mat("M_Percution",       MusicianBaseColors["M_Percution"], 0f, MusicianSmoothness);
             m.skin       = Mat("M_Skin",            new Color(0.90f, 0.78f, 0.62f), 0f, 0.4f);
             // v3 : opéra
             m.velvet     = Mat("M_Velvet",          new Color(0.35f, 0.03f, 0.06f), 0f, 0.2f);
@@ -735,30 +859,35 @@ namespace Maestro.EditorTools
             AnimationClip opera = NewClip("Anim_Opera", false);
             AnimationClip toRave = NewClip("Anim_ToRave", false);
             AnimationClip toOpera = NewClip("Anim_ToOpera", false);
-            Vector3 domeEnd = DomeScale * DomeEndScale;
+            // v5 : la coupole animée est celle du théâtre (OperaShell/Model/Ceiling/Dome, pivot à l'origine, échelle 1) si le modèle est importé,
+            // sinon la sphère greybox OperaShell/Dome (centre (0, 8, 0), échelle (80, 55, 80)).
+            string domePath = DomePath;
+            Vector3 domeRest = DomeRestPos;
+            Vector3 domeScale = DomeRestScale;
+            Vector3 domeEnd = domeScale * DomeEndScale;
 
             // Opera : pose de départ (1 frame)
             MoodCurve(opera, Const(0f, f));
             Vec3Curves(opera, "OperaShell", "localPosition", Const(0f, f), Const(0f, f), Const(0f, f));
             Vec3Curves(opera, "CastleShell", "localPosition", Const(0f, f), Const(CastleShellHiddenY, f), Const(0f, f));
-            Vec3Curves(opera, "OperaShell/Dome", "localPosition", Const(DomeCenter.x, f), Const(DomeCenter.y, f), Const(DomeCenter.z, f));
-            Vec3Curves(opera, "OperaShell/Dome", "localScale", Const(DomeScale.x, f), Const(DomeScale.y, f), Const(DomeScale.z, f));
+            Vec3Curves(opera, domePath, "localPosition", Const(domeRest.x, f), Const(domeRest.y, f), Const(domeRest.z, f));
+            Vec3Curves(opera, domePath, "localScale", Const(domeScale.x, f), Const(domeScale.y, f), Const(domeScale.z, f));
             Vec3Curves(opera, "OperaShell/Lustre", "localPosition", Const(LustrePos.x, f), Const(LustrePos.y, f), Const(LustrePos.z, f));
 
-            // ToRave : 0→2 s lustre +60 et dôme +80 / échelle 0.2 ; 0.5→4 s OperaShell → -30 ; 1→5 s CastleShell -45 → 0 ; 0→6 s rave 0 → 1
+            // ToRave : 0→2 s lustre +60 et coupole +80 / échelle 0 ; 0.5→4 s OperaShell → -30 ; 1→5 s CastleShell -45 → 0 ; 0→6 s rave 0 → 1
             MoodCurve(toRave, HoldEase(0f, 0f, D, 1f, D));
             Vec3Curves(toRave, "OperaShell", "localPosition", Const(0f, D), HoldEase(0.5f, 0f, 4f, OperaShellRaveY, D), Const(0f, D));
             Vec3Curves(toRave, "CastleShell", "localPosition", Const(0f, D), HoldEase(1f, CastleShellHiddenY, 5f, 0f, D), Const(0f, D));
-            Vec3Curves(toRave, "OperaShell/Dome", "localPosition", Const(DomeCenter.x, D), HoldEase(0f, DomeCenter.y, 2f, DomeCenter.y + DomeRise, D), Const(DomeCenter.z, D));
-            Vec3Curves(toRave, "OperaShell/Dome", "localScale", HoldEase(0f, DomeScale.x, 2f, domeEnd.x, D), HoldEase(0f, DomeScale.y, 2f, domeEnd.y, D), HoldEase(0f, DomeScale.z, 2f, domeEnd.z, D));
+            Vec3Curves(toRave, domePath, "localPosition", Const(domeRest.x, D), HoldEase(0f, domeRest.y, 2f, domeRest.y + DomeRise, D), Const(domeRest.z, D));
+            Vec3Curves(toRave, domePath, "localScale", HoldEase(0f, domeScale.x, 2f, domeEnd.x, D), HoldEase(0f, domeScale.y, 2f, domeEnd.y, D), HoldEase(0f, domeScale.z, 2f, domeEnd.z, D));
             Vec3Curves(toRave, "OperaShell/Lustre", "localPosition", Const(LustrePos.x, D), HoldEase(0f, LustrePos.y, 2f, LustrePos.y + LustreRise, D), Const(LustrePos.z, D));
 
             // ToOpera : miroir temporel de ToRave (valeur(t) = ToRave(D - t))
             MoodCurve(toOpera, HoldEase(0f, 1f, D, 0f, D));
             Vec3Curves(toOpera, "OperaShell", "localPosition", Const(0f, D), HoldEase(D - 4f, OperaShellRaveY, D - 0.5f, 0f, D), Const(0f, D));
             Vec3Curves(toOpera, "CastleShell", "localPosition", Const(0f, D), HoldEase(D - 5f, 0f, D - 1f, CastleShellHiddenY, D), Const(0f, D));
-            Vec3Curves(toOpera, "OperaShell/Dome", "localPosition", Const(DomeCenter.x, D), HoldEase(D - 2f, DomeCenter.y + DomeRise, D, DomeCenter.y, D), Const(DomeCenter.z, D));
-            Vec3Curves(toOpera, "OperaShell/Dome", "localScale", HoldEase(D - 2f, domeEnd.x, D, DomeScale.x, D), HoldEase(D - 2f, domeEnd.y, D, DomeScale.y, D), HoldEase(D - 2f, domeEnd.z, D, DomeScale.z, D));
+            Vec3Curves(toOpera, domePath, "localPosition", Const(domeRest.x, D), HoldEase(D - 2f, domeRest.y + DomeRise, D, domeRest.y, D), Const(domeRest.z, D));
+            Vec3Curves(toOpera, domePath, "localScale", HoldEase(D - 2f, domeEnd.x, D, domeScale.x, D), HoldEase(D - 2f, domeEnd.y, D, domeScale.y, D), HoldEase(D - 2f, domeEnd.z, D, domeScale.z, D));
             Vec3Curves(toOpera, "OperaShell/Lustre", "localPosition", Const(LustrePos.x, D), HoldEase(D - 2f, LustrePos.y + LustreRise, D, LustrePos.y, D), Const(LustrePos.z, D));
 
             AnimatorController c = NewController("EnvironmentController");
@@ -781,7 +910,7 @@ namespace Maestro.EditorTools
             back.hasFixedDuration = true;
             back.duration = 0f;
             EditorUtility.SetDirty(c);
-            Log("EnvironmentController : Opera (défaut) → Rave sur trigger Rave (Anim_ToRave " + D + " s) ; Rave → ToOpera sur trigger Reset (Anim_ToOpera " + D + " s) → Opera. Pas de trigger Night.");
+            Log("EnvironmentController : Opera (défaut) → Rave sur trigger Rave (Anim_ToRave " + D + " s) ; Rave → ToOpera sur trigger Reset (Anim_ToOpera " + D + " s) → Opera. Coupole animée : " + domePath + " (repos " + domeRest.ToString("F1") + " échelle " + domeScale.ToString("F1") + " → +" + DomeRise + " m, échelle " + DomeEndScale + "). Pas de trigger Night.");
             return c;
         }
 
@@ -927,9 +1056,9 @@ namespace Maestro.EditorTools
             // Lustre : plateau doré, chaîne jusqu'au plafond du dôme, 12 perles émissives + cœur, Point Light blanc chaud
             Transform lustre = Empty("Lustre", p, LustrePos, Vector3.zero).transform;
             Prim(PrimitiveType.Cylinder, "Plateau", lustre, Vector3.zero, Vector3.zero, new Vector3(3f, 0.15f, 3f), m.gold);
-            float hr = DomeScale.x * 0.5f, vr = DomeScale.y * 0.5f;
-            float ceilingY = DomeCenter.y + vr * Mathf.Sqrt(Mathf.Max(0f, 1f - (LustrePos.z * LustrePos.z) / (hr * hr)));
-            float chain = Mathf.Max(5f, ceilingY - LustrePos.y - 0.15f);
+            float vr = DomeScale.y * 0.5f;
+            float ceilingY = CeilingY(LustrePos.x, LustrePos.z);
+            float chain = Mathf.Max(1f, ceilingY - LustrePos.y - 0.15f);
             NoCollider(Prim(PrimitiveType.Cylinder, "Chaine", lustre, new Vector3(0f, 0.15f + chain * 0.5f, 0f), Vector3.zero, new Vector3(0.1f, chain * 0.5f, 0.1f), m.gold));
             for (int i = 0; i < 12; i++)
             {
@@ -956,6 +1085,24 @@ namespace Maestro.EditorTools
             // v4 : avant-scène, deux spots blanc chaud vers l'orchestre (pilotés ×1 → ×0 comme les lumières d'opéra)
             operaLights.Add(SpotLight("Avant_Scene_1", lum, new Vector3(-10f, 16f, 4f), StageLightTarget, ProsceniumSpotColor, ProsceniumSpotIntensity, ProsceniumSpotAngle, ProsceniumSpotRange));
             operaLights.Add(SpotLight("Avant_Scene_2", lum, new Vector3(10f, 16f, 4f), StageLightTarget, ProsceniumSpotColor, ProsceniumSpotIntensity, ProsceniumSpotAngle, ProsceniumSpotRange));
+
+            // v8 : poursuites de scène sur un rail derrière le lambrequin (cf. PoursuiteRailPos), une par section (deux pour Strings), plus un fill ;
+            // Render Mode Important (ForcePixel) pour garder leurs créneaux par objet (limite 4), sans ombres, toutes pilotées ×1 → ×0 par EnvironmentMood.
+            Transform pour = Empty("Poursuites", p, Vector3.zero, Vector3.zero).transform;
+            NoCollider(Prim(PrimitiveType.Cube, "Rail", pour, PoursuiteRailPos, Vector3.zero, PoursuiteRailSize, m.metal));
+            for (int i = 0; i < PoursuiteNames.Length; i++)
+            {
+                Vector3 pos = new Vector3(PoursuiteX[i], PoursuiteRailPos.y, PoursuiteRailPos.z);
+                Light spot = SpotLight(PoursuiteNames[i], pour, pos, PoursuiteTarget(PoursuiteNames[i]), PoursuiteColor, PoursuiteIntensity, PoursuiteAngle, PoursuiteRange);
+                spot.innerSpotAngle = PoursuiteInnerAngle;
+                spot.renderMode = LightRenderMode.ForcePixel;
+                NoCollider(Prim(PrimitiveType.Cube, "Projecteur", spot.transform, Vector3.zero, Vector3.zero, Vector3.one * PoursuiteProjectorSize, m.metal));
+                operaLights.Add(spot);
+            }
+            Light fill = PointLight(FillName, pour, FillPos, FillColor, FillIntensity, FillRange);
+            fill.renderMode = LightRenderMode.ForcePixel;
+            operaLights.Add(fill);
+            Log("OperaShell/Poursuites : rail " + PoursuiteRailSize.x + " m à " + PoursuiteRailPos.ToString("F1") + " (derrière le lambrequin, sous le plafond de l'ouverture), " + PoursuiteNames.Length + " Spot Lights " + PoursuiteAngle + "° / " + PoursuiteInnerAngle + "° intensité " + PoursuiteIntensity + " portée " + PoursuiteRange + " Important sans ombres (x = " + string.Join("/", Array.ConvertAll(PoursuiteX, x => x.ToString("F0"))) + "), " + FillName + " @ " + FillPos.ToString("F0") + " intensité " + FillIntensity + " portée " + FillRange + ".");
 
             Log("OperaShell : sol velours, 24 murs r=" + WallRadius + ", 3 anneaux de 17 loges, dôme ellipsoïde centre " + DomeCenter + " échelle " + DomeScale + " (sommet " + (DomeCenter.y + vr).ToString("F1") + " m), corniche, lustre @ " + LustrePos + " (chaîne " + chain.ToString("F1") + " m jusqu'au plafond), proscenium, " + OperaLightAngles.Length + " lumières de balcon.");
         }
@@ -1104,15 +1251,17 @@ namespace Maestro.EditorTools
             }
         }
 
-        static void BuildSection(string name, float[] xs, Material bodyMat, Material skin, Material wood, Material metal, AnimatorController ctrl, Transform anchor)
+        static void BuildSection(string name, Vector2[] layout, Material bodyMat, Material skin, Material wood, Material metal, AnimatorController ctrl, Transform anchor)
         {
             var root = new GameObject(name);
-            float minX = float.MaxValue, maxX = float.MinValue;
-            for (int i = 0; i < xs.Length; i++)
+            float minX = float.MaxValue, maxX = float.MinValue, minZ = float.MaxValue, maxZ = float.MinValue;
+            for (int i = 0; i < layout.Length; i++)
             {
-                minX = Mathf.Min(minX, xs[i]);
-                maxX = Mathf.Max(maxX, xs[i]);
-                GameObject mgo = Empty("Musician_" + (i + 1), root.transform, new Vector3(xs[i], 0f, 0f), Vector3.zero);
+                minX = Mathf.Min(minX, layout[i].x);
+                maxX = Mathf.Max(maxX, layout[i].x);
+                minZ = Mathf.Min(minZ, layout[i].y);
+                maxZ = Mathf.Max(maxZ, layout[i].y);
+                GameObject mgo = Empty("Musician_" + (i + 1), root.transform, new Vector3(layout[i].x, 0f, layout[i].y), Vector3.zero);
                 Transform mt = mgo.transform;
                 Prim(PrimitiveType.Capsule, "Body", mt, new Vector3(0f, 0.6f, 0f), Vector3.zero, new Vector3(0.5f, 0.6f, 0.5f), bodyMat);
                 Prim(PrimitiveType.Sphere, "Head", mt, new Vector3(0f, 1.35f, 0f), Vector3.zero, Vector3.one * 0.3f, skin);
@@ -1136,14 +1285,15 @@ namespace Maestro.EditorTools
                 a.applyRootMotion = false;
                 a.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             }
+            // v8 : collider recalculé sur tous les corps (x et z) avec 1 m de marge autour des capsules
             BoxCollider bc = root.AddComponent<BoxCollider>();
             bc.isTrigger = true;
-            float halfBody = 0.25f, margin = 1f;
-            bc.center = new Vector3((minX + maxX) * 0.5f, 1f, 0f);
-            bc.size = new Vector3((maxX - minX) + 2f * (halfBody + margin), 2f, 2f * (halfBody + margin));
+            float halfBody = MusicianBodyRadius, margin = SectionColliderMargin;
+            bc.center = new Vector3((minX + maxX) * 0.5f, 1f, (minZ + maxZ) * 0.5f);
+            bc.size = new Vector3((maxX - minX) + 2f * (halfBody + margin), 2f, (maxZ - minZ) + 2f * (halfBody + margin));
             SavePrefab(root, InstrDir + "/" + name + ".prefab");
             root.transform.SetPositionAndRotation(anchor.position, anchor.rotation);
-            Log(name + " : " + xs.Length + " musiciens, collider de section " + bc.size.ToString("F2") + ", instance sur " + anchor.name);
+            Log(name + " : " + layout.Length + " musiciens (x " + minX + " → " + maxX + ", z " + minZ + " → " + maxZ + "), collider de section " + bc.size.ToString("F2") + " centre " + bc.center.ToString("F2") + ", instance sur " + anchor.name);
         }
 
         static void BuildSpeakers(Material metal, Material magenta, AnimatorController ctrl, Transform anchor)
@@ -1250,7 +1400,7 @@ namespace Maestro.EditorTools
         static void BuildDebugPanel()
         {
             var root = new GameObject("DebugPanel");
-            MaestroDebugPanel dp = root.AddComponent<MaestroDebugPanel>();
+            MaestroArtDebugPanel dp = root.AddComponent<MaestroArtDebugPanel>();
             Sprite uiSprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
             Sprite bgSprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/Background.psd");
             Sprite knob = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/Knob.psd");
@@ -1262,7 +1412,7 @@ namespace Maestro.EditorTools
             Canvas canvas = panel.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
             RectTransform prt = Rect(panel);
-            prt.sizeDelta = new Vector2(600f, 450f);
+            prt.sizeDelta = new Vector2(DebugPanelWidthPx, DebugPanelHeightPx); // v8 : 10 boutons → 6 rangées, 0.6 × 0.538 m
             prt.localScale = Vector3.one * 0.001f;
             panel.AddComponent<GraphicRaycaster>();
             panel.AddComponent<TrackedDeviceGraphicRaycaster>();
@@ -1277,14 +1427,15 @@ namespace Maestro.EditorTools
             title.rectTransform.sizeDelta = new Vector2(0f, 26f);
             title.color = new Color(0.7f, 0.8f, 1f);
 
-            const float btnW = 275f, btnH = 80f, gap = 4f;
+            const float btnW = 275f;
+            float btnH = DebugButtonHeightPx, gap = DebugButtonGapPx;
             for (int i = 0; i < DebugButtons.Length; i++)
             {
                 bool last = i == DebugButtons.Length - 1;
-                int col = i % 2, row = i / 2;
+                int col = i % 2, row = DebugButtonRow(i);
                 float w = last ? btnW * 2f + gap : btnW;
                 float x = last ? 0f : (col == 0 ? -(btnW * 0.5f + gap * 0.5f) : (btnW * 0.5f + gap * 0.5f));
-                float y = -(30f + btnH * 0.5f + row * (btnH + gap));
+                float y = -(DebugPanelTitlePx + btnH * 0.5f + row * (btnH + gap));
                 var b = new GameObject("Btn_" + DebugButtonMethods[i].Substring(2), typeof(RectTransform));
                 b.transform.SetParent(panel.transform, false);
                 RectTransform brt = Rect(b);
@@ -1337,7 +1488,7 @@ namespace Maestro.EditorTools
             dp.progressImage = fill;
             panel.SetActive(false);
             SavePrefab(root, SystemsDir + "/DebugPanel.prefab");
-            Log("DebugPanel : canvas World Space 0.6 × 0.45 m, " + DebugButtons.Length + " boutons (0.08 m) câblés sur MaestroDebugPanel, Tracked Device Graphic Raycaster, panneau caché au départ.");
+            Log("DebugPanel : canvas World Space " + (DebugPanelWidthPx * 0.001f).ToString("F2") + " × " + (DebugPanelHeightPx * 0.001f).ToString("F3") + " m, " + DebugButtons.Length + " boutons (0.08 m) câblés sur MaestroArtDebugPanel (v8 : « Poursuites on/off » en dixième), Tracked Device Graphic Raycaster, panneau caché au départ.");
         }
 
         static void EnsureEventSystem(Scene scene)
@@ -1593,6 +1744,39 @@ namespace Maestro.EditorTools
             Transform opera = root.transform.Find("OperaShell");
             Transform castle = root.transform.Find("CastleShell");
             if (opera == null || castle == null) { Log("Environment : OperaShell/CastleShell introuvables, rien d'habillé"); return 0; }
+
+            // v5 : théâtre à l'italienne à la place de la coque greybox (sol, murs, balcons, sphère + corniche, cadre de scène, rideaux)
+            if (TheatreAvailable)
+            {
+                GameObject tm;
+                n += AttachModel(opera, MaestroProps.TheatreName, Vector3.zero, TheatreModelEuler, OperaGreyboxToRemove, false, out tm);
+                if (tm != null)
+                {
+                    foreach (string name in TheatreLiftedObjects)
+                    {
+                        Transform f = tm.transform.Find(name);
+                        if (f != null && Mathf.Abs(f.localPosition.y - TheatreFloorLift) > 1e-5f) { f.localPosition = new Vector3(0f, TheatreFloorLift, 0f); n = Math.Max(n, 1); }
+                    }
+                    Transform dome = tm.transform.Find("Ceiling/Dome");
+                    int flagged = 0;
+                    foreach (Transform t in tm.GetComponentsInChildren<Transform>(true))
+                    {
+                        bool isDome = dome != null && (t == dome || t.IsChildOf(dome));
+                        StaticEditorFlags want = isDome ? 0 : TheatreStaticFlags;
+                        if (GameObjectUtility.GetStaticEditorFlags(t.gameObject) != want) { GameObjectUtility.SetStaticEditorFlags(t.gameObject, want); n = Math.Max(n, 1); }
+                        if (!isDome) flagged++;
+                    }
+                    Transform lum = opera.Find("Lumieres_Opera");
+                    int moved = 0;
+                    for (int i = 0; i < TheatreOperaLightPos.Length && lum != null; i++)
+                    {
+                        Transform l = lum.Find("Opera_Light_" + (i + 1));
+                        if (l == null) continue;
+                        if ((l.localPosition - TheatreOperaLightPos[i]).magnitude > 1e-4f) { l.localPosition = TheatreOperaLightPos[i]; n = Math.Max(n, 1); moved++; }
+                    }
+                    Log("OperaShell : Theatre.fbx posé (Model, rotation Y 180° : scène vers +Z), coque greybox supprimée (" + string.Join(", ", OperaGreyboxToRemove) + "), " + string.Join("/", TheatreLiftedObjects) + " remontés de " + (TheatreFloorLift * 100f) + " cm, " + flagged + " objets Static (occluder/occludee/reflection, sans Batching ni ContributeGI), coupole animée = " + TheatreDomePath + ", " + moved + " lumière(s) de balcon replacée(s) aux galeries 2 et 3.");
+                }
+            }
 
             // Lustre : Model au point d'accroche (pivot sommet), chaîne primitive conservée jusqu'au plafond, Point Light au centre des bougies
             Transform lustre = opera.Find("Lustre");
