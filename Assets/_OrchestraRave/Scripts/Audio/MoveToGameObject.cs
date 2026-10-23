@@ -1,4 +1,3 @@
-
 using UnityEngine;
 
 public class MoveToGameObject : MonoBehaviour
@@ -13,7 +12,7 @@ public class MoveToGameObject : MonoBehaviour
 
         if (target == null)
         {
-            Debug.LogWarning("Aucune destination définie.", this);
+            Debug.LogWarning("Aucune destination dï¿½finie.", this);
             return;
         }
 

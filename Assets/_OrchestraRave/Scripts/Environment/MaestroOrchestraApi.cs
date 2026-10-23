@@ -478,7 +478,25 @@ namespace Maestro.Environment
 
         static GameObject FindRoot(GameObject[] roots, string name)
         {
-            foreach (GameObject r in roots) if (r != null && r.name == name) return r;
+            foreach (GameObject root in roots)
+            {
+                if (root == null)
+                    continue;
+
+                // Cherche d'abord l'objet racine.
+                if (root.name == name)
+                    return root;
+
+                // Recherche aussi dans les enfants,
+                // y compris les GameObjects inactifs.
+                foreach (Transform child in
+                         root.GetComponentsInChildren<Transform>(true))
+                {
+                    if (child.name == name)
+                        return child.gameObject;
+                }
+            }
+
             return null;
         }
 

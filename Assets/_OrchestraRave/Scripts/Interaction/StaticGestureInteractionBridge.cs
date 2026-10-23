@@ -7,21 +7,35 @@ using UnityEngine.XR.Hands;
 public class StaticGestureInteractionBridge : MonoBehaviour
 {
     [Header("Interaction")]
-    [SerializeField] private InstrumentSelector instrumentSelector;
-    [SerializeField] private OrchestraInteractionManager interactionManager;
+    [SerializeField]
+    private InstrumentSelector instrumentSelector;
+
+    [SerializeField]
+    private OrchestraInteractionManager interactionManager;
 
     [Header("XR")]
-    [SerializeField] private XROrigin xrOrigin;
-    [SerializeField] private Camera headCamera;
+    [SerializeField]
+    private XROrigin xrOrigin;
+
+    [SerializeField]
+    private Camera headCamera;
 
     [Header("Volume")]
-    [SerializeField] private float minHeightBelowHead = -0.65f;
-    [SerializeField] private float maxHeightBelowHead = -0.10f;
+    [SerializeField]
+    private float minHeightBelowHead = -0.65f;
+
+    [SerializeField]
+    private float maxHeightBelowHead = -0.10f;
 
     [Header("Pointage")]
-    [SerializeField] private float rayDebugLength = 10f;
-    [SerializeField] private float gestureLossGrace = 0.25f;
-    [SerializeField] private bool showDebugRay = true;
+    [SerializeField]
+    private float rayDebugLength = 10f;
+
+    [SerializeField]
+    private float gestureLossGrace = 0.25f;
+
+    [SerializeField]
+    private bool showDebugRay = true;
 
     private readonly List<XRHandSubsystem> handSubsystems =
         new List<XRHandSubsystem>();
@@ -41,7 +55,10 @@ public class StaticGestureInteractionBridge : MonoBehaviour
     private float pointInactiveTime;
     private float nextSubsystemSearch;
 
-    // Debug
+    // ==========================================
+    // PROPRIETES DEBUG
+    // ==========================================
+
     public bool FingerPointActive => fingerPointActive;
     public bool PalmUpActive => palmUpActive;
     public bool RightPalmUpActive => rightPalmUpActive;
@@ -174,6 +191,7 @@ public class StaticGestureInteractionBridge : MonoBehaviour
     private void FindHandSubsystem()
     {
         handSubsystems.Clear();
+
         SubsystemManager.GetSubsystems(handSubsystems);
 
         hands = null;
@@ -223,7 +241,8 @@ public class StaticGestureInteractionBridge : MonoBehaviour
         if (instrumentSelector == null)
             return;
 
-        // Les gestes d'action bloquent la sélection.
+        // Les gestes d'action de la main droite
+        // ont priorite sur la selection.
         if (rightPalmUpActive ||
             rightFistActive ||
             thumbDownActive)
@@ -279,6 +298,7 @@ public class StaticGestureInteractionBridge : MonoBehaviour
         direction.Normalize();
 
         Ray ray = new Ray(tip, direction);
+
         instrumentSelector.UpdatePointing(ray);
 
         if (showDebugRay)
@@ -301,7 +321,9 @@ public class StaticGestureInteractionBridge : MonoBehaviour
             leftFistActive ||
             interactionManager == null ||
             headCamera == null)
+        {
             return;
+        }
 
         XRHand leftHand = hands.leftHand;
 
@@ -330,7 +352,9 @@ public class StaticGestureInteractionBridge : MonoBehaviour
             thumbDownActive ||
             interactionManager == null ||
             headCamera == null)
+        {
             return;
+        }
 
         XRHand rightHand = hands.rightHand;
 
@@ -349,7 +373,7 @@ public class StaticGestureInteractionBridge : MonoBehaviour
     }
 
     // ==========================================
-    // NORMALISATION
+    // NORMALISATION DE LA HAUTEUR
     // ==========================================
 
     private float GetNormalizedHandHeight(Vector3 localPosition)
@@ -357,7 +381,8 @@ public class StaticGestureInteractionBridge : MonoBehaviour
         Vector3 worldPosition = ToWorldPosition(localPosition);
 
         float relativeHeight =
-            worldPosition.y - headCamera.transform.position.y;
+            worldPosition.y -
+            headCamera.transform.position.y;
 
         return Mathf.InverseLerp(
             minHeightBelowHead,

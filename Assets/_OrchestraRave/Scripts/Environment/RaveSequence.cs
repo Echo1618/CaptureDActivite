@@ -358,7 +358,22 @@ namespace Maestro.Environment
 
         static GameObject Root(GameObject[] roots, string name)
         {
-            foreach (GameObject r in roots) if (r != null && r.name == name) return r;
+            foreach (GameObject root in roots)
+            {
+                if (root == null)
+                    continue;
+
+                if (root.name == name)
+                    return root;
+
+                foreach (Transform child in
+                         root.GetComponentsInChildren<Transform>(true))
+                {
+                    if (child.name == name)
+                        return child.gameObject;
+                }
+            }
+
             return null;
         }
 
