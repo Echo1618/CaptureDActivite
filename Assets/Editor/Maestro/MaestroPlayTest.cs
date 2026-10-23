@@ -45,7 +45,7 @@ namespace Maestro.EditorTools
         static readonly List<Transform> _speakerModels = new List<Transform>();
         static readonly List<Animator> _musicians = new List<Animator>();
         static Transform _m1Body, _m1Head;
-        static MaestroDebugPanel _panel;
+        static MaestroArtDebugPanel _panel;
         static readonly Dictionary<string, Button> _buttons = new Dictionary<string, Button>();
         static Light[] _spots;
         static Transform _lasers;
@@ -336,7 +336,7 @@ namespace Maestro.EditorTools
             if (_m1Body == null || _m1Head == null) { _sb.AppendLine("PROBLEME: Strings/Musician_1 incomplet"); return false; }
 
             GameObject dp = GameObject.Find("DebugPanel");
-            _panel = dp != null ? dp.GetComponent<MaestroDebugPanel>() : null;
+            _panel = dp != null ? dp.GetComponent<MaestroArtDebugPanel>() : null;
             if (_panel == null || _panel.panel == null) { _sb.AppendLine("PROBLEME: DebugPanel introuvable"); return false; }
             _buttons.Clear();
             foreach (Button b in _panel.panel.GetComponentsInChildren<Button>(true))

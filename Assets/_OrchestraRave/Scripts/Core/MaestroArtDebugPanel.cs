@@ -17,7 +17,7 @@ namespace Maestro.Core
     /// sur les méthodes On* ci-dessous, qui agissent sur les instances de la scène trouvées au démarrage par nom de racine.
     /// </summary>
     [DisallowMultipleComponent]
-    public class MaestroDebugPanel : MonoBehaviour
+    public class MaestroArtDebugPanel : MonoBehaviour
     {
         [Header("UI (remplie par le build)")]
         public GameObject panel;
@@ -47,7 +47,7 @@ namespace Maestro.Core
         [Tooltip("Groupe (sous la racine Environment) des poursuites de scène et du fill : le bouton Poursuites on/off bascule enabled sur ses Lights.")]
         public string poursuitesName = "Poursuites";
 
-        const string Tag = "[MaestroDebugPanel] ";
+        const string Tag = "[MaestroArtDebugPanel] ";
         static readonly List<XRHandSubsystem> s_HandSubsystems = new List<XRHandSubsystem>();
 
         Animator _environment;

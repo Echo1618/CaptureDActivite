@@ -1400,7 +1400,7 @@ namespace Maestro.EditorTools
         static void BuildDebugPanel()
         {
             var root = new GameObject("DebugPanel");
-            MaestroDebugPanel dp = root.AddComponent<MaestroDebugPanel>();
+            MaestroArtDebugPanel dp = root.AddComponent<MaestroArtDebugPanel>();
             Sprite uiSprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/UISprite.psd");
             Sprite bgSprite = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/Background.psd");
             Sprite knob = AssetDatabase.GetBuiltinExtraResource<Sprite>("UI/Skin/Knob.psd");
@@ -1488,7 +1488,7 @@ namespace Maestro.EditorTools
             dp.progressImage = fill;
             panel.SetActive(false);
             SavePrefab(root, SystemsDir + "/DebugPanel.prefab");
-            Log("DebugPanel : canvas World Space " + (DebugPanelWidthPx * 0.001f).ToString("F2") + " × " + (DebugPanelHeightPx * 0.001f).ToString("F3") + " m, " + DebugButtons.Length + " boutons (0.08 m) câblés sur MaestroDebugPanel (v8 : « Poursuites on/off » en dixième), Tracked Device Graphic Raycaster, panneau caché au départ.");
+            Log("DebugPanel : canvas World Space " + (DebugPanelWidthPx * 0.001f).ToString("F2") + " × " + (DebugPanelHeightPx * 0.001f).ToString("F3") + " m, " + DebugButtons.Length + " boutons (0.08 m) câblés sur MaestroArtDebugPanel (v8 : « Poursuites on/off » en dixième), Tracked Device Graphic Raycaster, panneau caché au départ.");
         }
 
         static void EnsureEventSystem(Scene scene)

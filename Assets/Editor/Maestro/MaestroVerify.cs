@@ -423,8 +423,8 @@ namespace Maestro.EditorTools
             int problems = 0;
             GameObject go = Find(roots, "DebugPanel");
             if (go == null) { sb.AppendLine("PROBLEME: DebugPanel absent"); return 1; }
-            MaestroDebugPanel dp = go.GetComponent<MaestroDebugPanel>();
-            if (dp == null) { sb.AppendLine("PROBLEME: composant MaestroDebugPanel absent"); return 1; }
+            MaestroArtDebugPanel dp = go.GetComponent<MaestroArtDebugPanel>();
+            if (dp == null) { sb.AppendLine("PROBLEME: composant MaestroArtDebugPanel absent"); return 1; }
             if (dp.panel == null) { sb.AppendLine("PROBLEME: DebugPanel.panel non référencé"); return 1; }
             bool hidden = !dp.panel.activeSelf;
             Canvas canvas = dp.panel.GetComponent<Canvas>();
@@ -453,7 +453,7 @@ namespace Maestro.EditorTools
             foreach (string m in MaestroGreybox.DebugButtonMethods) if (!methods.Contains(m)) missing.Add(m);
             int expectedButtons = MaestroGreybox.DebugButtons.Length;
             bool buttonsOk = buttons.Length == expectedButtons && wired == expectedButtons && missing.Count == 0 && tooSmall == 0;
-            sb.AppendLine((buttonsOk ? "Boutons OK : " : "PROBLEME boutons : ") + buttons.Length + " boutons (attendu " + expectedButtons + ", dont « Poursuites on/off » → OnTogglePoursuites), " + wired + " câblés en persistant sur MaestroDebugPanel, méthodes manquantes : " + (missing.Count == 0 ? "aucune" : string.Join(", ", missing)) + ", " + tooSmall + " bouton(s) < 0.08 m");
+            sb.AppendLine((buttonsOk ? "Boutons OK : " : "PROBLEME boutons : ") + buttons.Length + " boutons (attendu " + expectedButtons + ", dont « Poursuites on/off » → OnTogglePoursuites), " + wired + " câblés en persistant sur MaestroArtDebugPanel, méthodes manquantes : " + (missing.Count == 0 ? "aucune" : string.Join(", ", missing)) + ", " + tooSmall + " bouton(s) < 0.08 m");
             if (!buttonsOk) problems++;
 
             GameObject es = Find(roots, MaestroGreybox.EventSystemName);
