@@ -33,7 +33,17 @@ namespace Maestro.EditorTools
         static double _phaseStart;
         static bool _autoExit;
         static int _failures;
-        static bool _sampled3s;
+        static bool _sampled1s, _sampled3s, _sampled5s;
+        static float _maxRaveStep, _maxShellStep, _prevRave, _prevShellY, _raveAtToggle;
+        static Renderer[] _theatreRenderers;
+        static string _pendingLabel;
+        static int _pendingFrame;
+        static Color _pendingOn;
+        static float _pendingCov, _pendingReflKeep;
+        static readonly Vector3 Eye = new Vector3(0f, 1.6f, 0f);
+        static readonly Quaternion LookBack = Quaternion.Euler(0f, 180f, 0f);
+        static float _pulseMin, _pulseMax;
+        static readonly MaterialPropertyBlock s_Block = new MaterialPropertyBlock();
 
         static Animator _env;
         static EnvironmentMood _mood;
@@ -110,12 +120,13 @@ namespace Maestro.EditorTools
             _sb = new StringBuilder();
             _phase = 0;
             _failures = 0;
-            _sampled3s = false;
+            _sampled1s = _sampled3s = _sampled5s = false;
+            _pendingLabel = null;
             _phaseStart = EditorApplication.timeSinceStartup;
             _autoExit = SessionState.GetBool(AutoExitKey, true);
             EditorApplication.update -= Update;
             EditorApplication.update += Update;
-            MaestroRunner.PlayLog("PlayTest v8 démarré (autoExit=" + _autoExit + ")");
+            MaestroRunner.PlayLog("PlayTest v9 démarré (autoExit=" + _autoExit + ")");
         }
 
         // ------------------------------------------------------------------ helpers
@@ -259,6 +270,127 @@ namespace Maestro.EditorTools
             foreach (Light l in _spots) if (l != null) l.enabled = on;
         }
 
+        static string RaveLabel() { return _panel != null && _panel.raveLabel != null ? _panel.raveLabel.text : "?"; }
+        static string HighlightLabel() { return _panel != null && _panel.highlightLabel != null ? _panel.highlightLabel.text : "?"; }
+
+        // ---- v10 : lecture de l'émission effective (MaterialPropertyBlock) sur les renderers des musiciens ----
+        static Transform MusicianTransform(string section, int index)
+        {
+            GameObject s = GameObject.Find(section);
+            return s != null ? s.transform.Find("Musician_" + (index + 1)) : null;
+        }
+
+        static Renderer MusicianRenderer(string section, int index, string child)
+        {
+            Transform m = MusicianTransform(section, index);
+            Transform c = m != null ? m.Find(child) : null;
+            return c != null ? c.GetComponent<Renderer>() : null;
+        }
+
+        static Renderer Body(string section, int index) { return MusicianRenderer(section, index, "Body"); }
+        static Renderer Head(string section, int index) { return MusicianRenderer(section, index, "Head"); }
+
+        static Renderer Instrument(string section, int index)
+        {
+            Transform m = MusicianTransform(section, index);
+            Transform inst = m != null ? m.Find("Instrument") : null;
+            return inst != null ? inst.GetComponentInChildren<Renderer>() : null;
+        }
+
+        static Color Emission(Renderer r)
+        {
+            if (r == null) return Color.black;
+            r.GetPropertyBlock(s_Block);
+            return s_Block.GetColor("_EmissionColor");
+        }
+
+        /// <summary>Intensité effective = composante max de l'émission / composante max de la couleur de section.</summary>
+        static float Intensity(Renderer r, string section)
+        {
+            float b = MaestroGreybox.MusicianBaseColors["M_" + section].maxColorComponent;
+            return b > 0f ? Emission(r).maxColorComponent / b : 0f;
+        }
+
+        static void CheckEmission(Renderer r, string section, float minI, float maxI, string what)
+        {
+            Color baseC = MaestroGreybox.MusicianBaseColors["M_" + section];
+            Color e = Emission(r);
+            float i = Intensity(r, section);
+            bool hue = i > 0f;
+            if (hue)
+            {
+                Color n = e / i;
+                hue = Mathf.Abs(n.r - baseC.r) < 0.03f && Mathf.Abs(n.g - baseC.g) < 0.03f && Mathf.Abs(n.b - baseC.b) < 0.03f;
+            }
+            Check(r != null && i >= minI - 0.05f && i <= maxI + 0.05f && hue, what + " : émission " + e.ToString("F2") + " = couleur " + section + " × " + i.ToString("F2") + " (attendu × " + (Mathf.Abs(minI - maxI) < 1e-4f ? minI.ToString("F1") : minI.ToString("F1") + " à " + maxI.ToString("F1")) + ", teinte de la section)");
+        }
+
+        static void CheckOff(Renderer r, string what)
+        {
+            Color e = Emission(r);
+            Check(r != null && e.maxColorComponent < 0.01f, what + " : émission " + e.ToString("F2") + " (attendu 0)");
+        }
+
+        static void StartContinuity()
+        {
+            _maxRaveStep = 0f;
+            _maxShellStep = 0f;
+            _prevRave = _mood.rave;
+            _prevShellY = _opera.localPosition.y;
+            _samples = 0;
+        }
+
+        /// <summary>v9 : saut maximal de rave et d'OperaShell.y entre deux échantillons (détecte une reprise de transition qui repartirait du début).</summary>
+        static void TrackContinuity()
+        {
+            float r = _mood.rave, y = _opera.localPosition.y;
+            _maxRaveStep = Mathf.Max(_maxRaveStep, Mathf.Abs(r - _prevRave));
+            _maxShellStep = Mathf.Max(_maxShellStep, Mathf.Abs(y - _prevShellY));
+            _prevRave = r;
+            _prevShellY = y;
+            _samples++;
+        }
+
+        static string Rgb(Color c) { return c.r.ToString("F0") + ", " + c.g.ToString("F0") + ", " + c.b.ToString("F0"); }
+
+        /// <summary>v9 : capture depuis le podium vers −Z (galeries) + couleur moyenne des pixels du théâtre (rendu de masque). La frame suivante est rendue
+        /// sans réflexions d'environnement (FinishMeasure) pour isoler leur part : elle doit avoir la chromaticité de l'ambiant, pas celle d'une skybox.</summary>
+        static void MeasureTheatre(string label, string outPath)
+        {
+            Color[] means;
+            float[] cov;
+            MaestroScreenshot.CaptureAndMeasure(_sb, Eye, LookBack, 65f, outPath, new[] { _theatreRenderers }, out means, out cov);
+            _pendingLabel = label;
+            _pendingOn = means[0];
+            _pendingCov = cov[0];
+            _pendingFrame = Time.frameCount;
+            _pendingReflKeep = RenderSettings.reflectionIntensity;
+            RenderSettings.reflectionIntensity = 0f;
+        }
+
+        /// <summary>Seconde mesure (réflexions à 0) sur une frame ultérieure, puis contrôle : dominante cyan (G+B)/2 − R du théâtre ≤ max(8, celle de l'ambiant + 8)
+        /// et part des réflexions de même chromaticité que l'ambiant (écart ≤ 0,10 par canal) quand elle n'est pas négligeable.</summary>
+        static void FinishMeasure()
+        {
+            if (_pendingLabel == null || Time.frameCount <= _pendingFrame) return;
+            Color[] means;
+            float[] cov;
+            MaestroScreenshot.CaptureAndMeasure(_sb, Eye, LookBack, 65f, null, new[] { _theatreRenderers }, out means, out cov);
+            RenderSettings.reflectionIntensity = _pendingReflKeep;
+            string label = _pendingLabel;
+            _pendingLabel = null;
+            Color amb = RenderSettings.ambientLight * 255f;
+            Color on = _pendingOn, off = means[0];
+            Color d = on - off;
+            float ambCyan = (amb.g + amb.b) * 0.5f - amb.r, onCyan = (on.g + on.b) * 0.5f - on.r;
+            float dSum = d.r + d.g + d.b, aSum = amb.r + amb.g + amb.b;
+            bool reflSignificant = dSum > 6f && aSum > 1f;
+            float chromaErr = reflSignificant ? Mathf.Max(Mathf.Abs(d.r / dSum - amb.r / aSum), Mathf.Abs(d.g / dSum - amb.g / aSum), Mathf.Abs(d.b / dSum - amb.b / aSum)) : 0f;
+            string info = "Théâtre à " + label + " (vue −Z, " + (_pendingCov * 100f).ToString("F1") + " % de l'image) : RGB moyen (" + Rgb(on) + "), dominante cyan (G+B)/2−R = " + onCyan.ToString("F1") + " (ambiant (" + Rgb(amb) + ") : " + ambCyan.ToString("F1") + ") ; part des réflexions d'environnement (" + Rgb(d) + ")" + (reflSignificant ? ", chromaticité à " + chromaErr.ToString("F2") + " de celle de l'ambiant" : ", négligeable");
+            if (_pendingCov < 0.005f) { _sb.AppendLine("  " + info + " → théâtre hors champ, pas de contrôle"); return; }
+            Check(onCyan <= Mathf.Max(8f, ambCyan + 8f) && chromaErr <= 0.10f, info + " (attendu : dominante cyan ≤ max(8, ambiant + 8) et réflexions de la chromaticité de l'ambiant à 0,10 près)");
+        }
+
         static void Click(string method)
         {
             Button b;
@@ -309,6 +441,9 @@ namespace Maestro.EditorTools
             }
             _lustreModel = _opera.Find("Lustre/Model");
             _torch1 = _castle.Find("Torch_1");
+            Transform theatre = _opera.Find("Model");
+            _theatreRenderers = theatre != null ? theatre.GetComponentsInChildren<Renderer>(false) : new Renderer[0];
+            _sb.AppendLine("Théâtre : " + _theatreRenderers.Length + " renderers (mesure de la dominante cyan sur leurs pixels, vue −Z)");
             _poursuites.Clear();
             Transform pours = _opera.Find("Poursuites");
             if (pours != null) _poursuites.AddRange(pours.GetComponentsInChildren<Light>(true));
@@ -379,10 +514,22 @@ namespace Maestro.EditorTools
                         NextPhase(1);
                         break;
                     case 1:
+                        FinishMeasure();
+                        if (!_sampled1s && t >= 1.0)
+                        {
+                            _sampled1s = true;
+                            MeasureTheatre("1 s", Path.Combine(MaestroScreenshot.Dir, "v9-transition-1s.png"));
+                        }
                         if (!_sampled3s && t >= 3.0)
                         {
                             _sampled3s = true;
                             _sb.AppendLine("  À 3 s : " + Sample() + " | poursuites : " + PoursuitesState());
+                            MeasureTheatre("3 s", Path.Combine(MaestroScreenshot.Dir, "v9-transition-3s.png"));
+                        }
+                        if (!_sampled5s && t >= 5.0)
+                        {
+                            _sampled5s = true;
+                            MeasureTheatre("5 s", Path.Combine(MaestroRunner.ProjectRoot, "Temp", "v9-transition-5s.png"));
                         }
                         if (t >= 7.0)
                         {
@@ -397,15 +544,13 @@ namespace Maestro.EditorTools
                             }
                             if (_torch1 != null)
                                 Check(Mathf.Abs(_torch1.position.y - _torch1.localPosition.y) < 0.05f, "Torch_1 à 7 s : y monde " + _torch1.position.y.ToString("F2") + " (remontée avec le château, attendu " + _torch1.localPosition.y.ToString("F2") + ")");
-                            SetSpots(true);
-                            MaestroScreenshot.CaptureView(_sb, new Vector3(0f, 1.6f, 0f), Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v8-rave.png"));
-                            SetSpots(false);
-                            _sb.AppendLine("  Spots allumés pour la capture puis réteints (" + SpotsOn() + " allumé(s))");
+                            MeasureTheatre("7 s (rave)", Path.Combine(MaestroScreenshot.Dir, "v9-rave.png"));
                             _env.SetTrigger("Reset");
                             NextPhase(2);
                         }
                         break;
                     case 2:
+                        FinishMeasure();
                         if (t >= 7.0)
                         {
                             Expect("7 s après Reset", 0f, 0f, MaestroGreybox.CastleShellHiddenY, MaestroGreybox.LustreIntensity, 0f);
@@ -418,13 +563,42 @@ namespace Maestro.EditorTools
                         _sb.AppendLine("=== DebugPanel : boutons via onClick ===");
                         _panel.TogglePanel();
                         Check(_panel.IsPanelVisible, "TogglePanel() : panneau visible=" + _panel.IsPanelVisible + " @ " + _panel.panel.transform.position.ToString("F2"));
+                        Check(RaveLabel() == _panel.raveLabelOpera, "Libellé du bouton Rave à l'opéra : « " + RaveLabel() + " » (attendu « " + _panel.raveLabelOpera + " »)");
                         Click("OnRave");
                         NextPhase(4);
                         break;
                     case 4:
                         if (t >= 0.3)
                         {
-                            Check(EnvState() == "Rave" && _mood.rave > 0f, "Rave : état Environment=" + EnvState() + ", rave=" + _mood.rave.ToString("F3"));
+                            Check(EnvState() == "Rave" && _mood.rave > 0f && RaveLabel() == _panel.raveLabelRave, "Rave (bascule, 1) : état Environment=" + EnvState() + ", rave=" + _mood.rave.ToString("F3") + ", libellé « " + RaveLabel() + " » (attendu Rave / « " + _panel.raveLabelRave + " »)");
+                            StartContinuity();
+                            NextPhase(40);
+                        }
+                        break;
+                    case 40:
+                        TrackContinuity();
+                        if (t >= 2.7) // 3 s après le clic Rave : en pleine transition
+                        {
+                            _raveAtToggle = _mood.rave;
+                            _sb.AppendLine("  À 3 s de transition : rave=" + _mood.rave.ToString("F3") + " opera.y=" + _opera.localPosition.y.ToString("F2") + " ; clic « " + RaveLabel() + " » (bascule → Reset)");
+                            Click("OnRave");
+                            NextPhase(41);
+                        }
+                        break;
+                    case 41:
+                        TrackContinuity();
+                        if (t >= 0.3)
+                        {
+                            Check(EnvState() == "ToOpera" && _mood.rave <= _raveAtToggle + 0.01f && _mood.rave >= _raveAtToggle - 0.2f && RaveLabel() == _panel.raveLabelOpera, "Rave (bascule, 2) à 3 s : état Environment=" + EnvState() + ", rave " + _raveAtToggle.ToString("F3") + " → " + _mood.rave.ToString("F3") + " après 0,3 s, libellé « " + RaveLabel() + " » (attendu ToOpera, rave en baisse continue, « " + _panel.raveLabelOpera + " »)");
+                            NextPhase(42);
+                        }
+                        break;
+                    case 42:
+                        TrackContinuity();
+                        if (t >= 3.8)
+                        {
+                            Check(EnvState() == "Opera" && _mood.rave < 0.001f && Mathf.Abs(_opera.localPosition.y) < 0.05f && Mathf.Abs(_castle.localPosition.y - MaestroGreybox.CastleShellHiddenY) < 0.05f, "Retour depuis 3 s de transition : état " + EnvState() + ", rave=" + _mood.rave.ToString("F3") + ", opera.y=" + _opera.localPosition.y.ToString("F2") + ", castle.y=" + _castle.localPosition.y.ToString("F1") + " après 4,1 s (attendu Opera, 0, 0, " + MaestroGreybox.CastleShellHiddenY + ")");
+                            Check(_maxRaveStep <= 0.05f && _maxShellStep <= 2f, "Continuité (" + _samples + " éch.) : saut max de rave par échantillon " + _maxRaveStep.ToString("F4") + ", d'OperaShell.y " + _maxShellStep.ToString("F3") + " m (attendu ≤ 0,05 et ≤ 2 : reprise à l'instant miroir, sans saut ; un saut vaudrait ≈ 0,5 et ≈ 25 m)");
                             Click("OnReset");
                             NextPhase(5);
                         }
@@ -432,7 +606,7 @@ namespace Maestro.EditorTools
                     case 5:
                         if (t >= 0.3)
                         {
-                            Check(EnvState() == "ToOpera" || EnvState() == "Opera", "Reset : état Environment=" + EnvState() + ", rave=" + _mood.rave.ToString("F3"));
+                            Check(EnvState() == "Opera" && _mood.rave < 0.001f && !_env.GetBool("Reset"), "Reset à l'opéra (bouton séparé) : état Environment=" + EnvState() + ", rave=" + _mood.rave.ToString("F3") + ", déclencheur Reset en attente=" + _env.GetBool("Reset") + " (attendu Opera, 0, effacé par EnvironmentMood)");
                             DetectFloor();
                             _dropMinMargin = float.MaxValue;
                             _dropMinT = 0f;
@@ -544,6 +718,156 @@ namespace Maestro.EditorTools
                         if (t >= 0.5)
                         {
                             Check(PoursuitesEnabled() == _poursuites.Count && PoursuitesAtBase(), "Poursuites on/off (2) : " + PoursuitesState() + " (attendu toutes rallumées à leur base)");
+                            NextPhase(50);
+                        }
+                        break;
+                    case 50:
+                        _sb.AppendLine("=== Highlight de section et de musicien (v10 : émission par MaterialPropertyBlock lue sur les renderers) ===");
+                        {
+                            int withHl = 0;
+                            foreach (string n in MaestroGreybox.SectionPrefabs) if (_panel.GetHighlight(n) != null) withHl++;
+                            Check(withHl == MaestroGreybox.SectionPrefabs.Length, "SectionHighlight trouvé par le panneau sur " + withHl + "/" + MaestroGreybox.SectionPrefabs.Length + " sections");
+                            Check(HighlightLabel() == _panel.highlightLabelIdle, "Libellé initial du bouton : « " + HighlightLabel() + " » (attendu « " + _panel.highlightLabelIdle + " »)");
+                        }
+                        Click("OnHighlightTest"); // Strings section
+                        NextPhase(51);
+                        break;
+                    case 51:
+                        if (t >= 0.6)
+                        {
+                            CheckEmission(Body("Strings", 0), "Strings", MaestroGreybox.HighlightSoft, MaestroGreybox.HighlightSoft, "Strings section : Strings/Musician_1 Body doux");
+                            CheckEmission(Body("Strings", 2), "Strings", MaestroGreybox.HighlightSoft, MaestroGreybox.HighlightSoft, "Strings section : Strings/Musician_3 Body doux");
+                            CheckOff(Body("Vent", 0), "Strings section : Vent/Musician_1 Body éteint (non concerné)");
+                            Check(HighlightLabel() == "Highlight : Strings section", "Libellé « " + HighlightLabel() + " » (attendu « Highlight : Strings section »)");
+                            Click("OnHighlightTest"); // Strings musicien 3
+                            _pulseMin = float.MaxValue;
+                            _pulseMax = float.MinValue;
+                            NextPhase(52);
+                        }
+                        break;
+                    case 52:
+                        if (t >= 0.3)
+                        {
+                            float e = Intensity(Body("Strings", 2), "Strings");
+                            _pulseMin = Mathf.Min(_pulseMin, e);
+                            _pulseMax = Mathf.Max(_pulseMax, e);
+                        }
+                        if (t >= 1.5)
+                        {
+                            float lo = MaestroGreybox.HighlightStrong - MaestroGreybox.HighlightPulseAmplitude, hi = MaestroGreybox.HighlightStrong + MaestroGreybox.HighlightPulseAmplitude;
+                            CheckEmission(Body("Strings", 2), "Strings", lo, hi, "Strings musicien 3 : Strings/Musician_3 Body fort");
+                            Check(_pulseMax - _pulseMin >= 0.5f && _pulseMin >= lo - 0.05f && _pulseMax <= hi + 0.05f, "Pulsation du musicien fort sur 1,2 s : intensité " + _pulseMin.ToString("F2") + " → " + _pulseMax.ToString("F2") + " (attendu entre " + lo + " et " + hi + ", amplitude ≥ 0,5 à " + MaestroGreybox.HighlightPulseHz + " Hz)");
+                            CheckEmission(Body("Strings", 0), "Strings", MaestroGreybox.HighlightSoft, MaestroGreybox.HighlightSoft, "Strings musicien 3 : Strings/Musician_1 Body doux (section impliquée)");
+                            CheckOff(Body("Vent", 0), "Strings musicien 3 : Vent/Musician_1 Body éteint (non concerné)");
+                            Check(_panel.GetHighlight("Strings").HighlightedMusician == 2 && _panel.GetHighlight("Strings").SectionHighlighted, "API Strings : HighlightedMusician=" + _panel.GetHighlight("Strings").HighlightedMusician + ", SectionHighlighted=" + _panel.GetHighlight("Strings").SectionHighlighted + " (attendu 2 / True)");
+                            Click("OnHighlightTest"); // Vent musicien 1
+                            NextPhase(53);
+                        }
+                        break;
+                    case 53:
+                        if (t >= 0.6)
+                        {
+                            float lo = MaestroGreybox.HighlightStrong - MaestroGreybox.HighlightPulseAmplitude, hi = MaestroGreybox.HighlightStrong + MaestroGreybox.HighlightPulseAmplitude;
+                            CheckEmission(Body("Vent", 0), "Vent", lo, hi, "Vent musicien 1 : Vent/Musician_1 Body fort");
+                            CheckEmission(Head("Vent", 0), "Vent", lo, hi, "Vent musicien 1 : Vent/Musician_1 Head forte aussi");
+                            CheckEmission(Body("Vent", 1), "Vent", MaestroGreybox.HighlightSoft, MaestroGreybox.HighlightSoft, "Vent musicien 1 : Vent/Musician_2 Body doux (section impliquée)");
+                            CheckOff(Body("Strings", 2), "Vent musicien 1 : Strings/Musician_3 Body éteint (étape précédente effacée)");
+                            CheckOff(Head("Strings", 0), "Vent musicien 1 : Strings/Musician_1 Head éteinte");
+                            CheckOff(Instrument("Vent", 0), "Vent musicien 1 : modèle d'instrument de Vent/Musician_1 non affecté");
+                            Check(HighlightLabel() == "Highlight : Vent musicien 1", "Libellé « " + HighlightLabel() + " » (attendu « Highlight : Vent musicien 1 »)");
+                            MaestroScreenshot.CaptureView(_sb, Eye, Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v10-highlight.png"));
+                            Click("OnRave"); // Rave avec un highlight actif
+                            NextPhase(54);
+                        }
+                        break;
+                    case 54:
+                        if (t >= 0.5)
+                        {
+                            float lo = MaestroGreybox.HighlightStrong - MaestroGreybox.HighlightPulseAmplitude, hi = MaestroGreybox.HighlightStrong + MaestroGreybox.HighlightPulseAmplitude;
+                            Check(EnvState() == "Rave" && _mood.rave > 0f, "Rave pendant le highlight : état Environment=" + EnvState() + ", rave=" + _mood.rave.ToString("F3"));
+                            CheckEmission(Body("Vent", 0), "Vent", lo, hi, "Rave pendant le highlight : Vent/Musician_1 Body toujours fort");
+                            Click("OnRave"); // bascule → Reset
+                            NextPhase(55);
+                        }
+                        break;
+                    case 55:
+                        if (t >= 2.0)
+                        {
+                            float lo = MaestroGreybox.HighlightStrong - MaestroGreybox.HighlightPulseAmplitude, hi = MaestroGreybox.HighlightStrong + MaestroGreybox.HighlightPulseAmplitude;
+                            Check(EnvState() == "Opera" && _mood.rave < 0.001f, "Reset pendant le highlight : état Environment=" + EnvState() + ", rave=" + _mood.rave.ToString("F3") + " après 2 s (attendu Opera, 0)");
+                            Check(_speakers.GetCurrentAnimatorStateInfo(0).IsName("Dropped"), "Drop non affecté : caissons en état Dropped=" + _speakers.GetCurrentAnimatorStateInfo(0).IsName("Dropped"));
+                            CheckEmission(Body("Vent", 0), "Vent", lo, hi, "Après Rave/Reset : Vent/Musician_1 Body toujours fort");
+                            Click("OnHighlightTest"); // Brass section
+                            NextPhase(56);
+                        }
+                        break;
+                    case 56:
+                        if (t >= 0.6)
+                        {
+                            CheckEmission(Body("Brass", 0), "Brass", MaestroGreybox.HighlightSoft, MaestroGreybox.HighlightSoft, "Brass section : Brass/Musician_1 Body doux");
+                            CheckOff(Body("Vent", 0), "Brass section : Vent/Musician_1 Body éteint");
+                            Click("OnHighlightTest"); // Percution musicien 2
+                            NextPhase(57);
+                        }
+                        break;
+                    case 57:
+                        if (t >= 0.6)
+                        {
+                            float lo = MaestroGreybox.HighlightStrong - MaestroGreybox.HighlightPulseAmplitude, hi = MaestroGreybox.HighlightStrong + MaestroGreybox.HighlightPulseAmplitude;
+                            CheckEmission(Body("Percution", 1), "Percution", lo, hi, "Percution musicien 2 : Percution/Musician_2 Body fort");
+                            CheckEmission(Body("Percution", 0), "Percution", MaestroGreybox.HighlightSoft, MaestroGreybox.HighlightSoft, "Percution musicien 2 : Percution/Musician_1 Body doux");
+                            CheckOff(Body("Brass", 0), "Percution musicien 2 : Brass/Musician_1 Body éteint");
+                            Click("OnHighlightTest"); // ClearAll
+                            NextPhase(58);
+                        }
+                        break;
+                    case 58:
+                        if (t >= 0.6)
+                        {
+                            int lit = 0, total = 0;
+                            foreach (string n in MaestroGreybox.SectionPrefabs)
+                            {
+                                GameObject s = GameObject.Find(n);
+                                if (s == null) continue;
+                                foreach (Transform m in s.transform)
+                                {
+                                    if (!m.name.StartsWith("Musician_")) continue;
+                                    foreach (Renderer r in m.GetComponentsInChildren<Renderer>()) { total++; if (Emission(r).maxColorComponent > 0.01f) lit++; }
+                                }
+                            }
+                            Check(lit == 0 && total >= MaestroGreybox.MusicianCount * 2, "ClearAll : " + lit + "/" + total + " renderers de musiciens encore émissifs (attendu 0)");
+                            Check(HighlightLabel() == "Highlight : ClearAll", "Libellé « " + HighlightLabel() + " » (attendu « Highlight : ClearAll »)");
+                            _panel.GetHighlight("Strings").SetMusicianHighlighted(2, true); // API directe : un seul musicien fort par section
+                            NextPhase(59);
+                        }
+                        break;
+                    case 59:
+                        if (t >= 0.6)
+                        {
+                            float lo = MaestroGreybox.HighlightStrong - MaestroGreybox.HighlightPulseAmplitude, hi = MaestroGreybox.HighlightStrong + MaestroGreybox.HighlightPulseAmplitude;
+                            CheckEmission(Body("Strings", 2), "Strings", lo, hi, "API SetMusicianHighlighted(2, true) : Strings/Musician_3 Body fort");
+                            CheckEmission(Body("Strings", 0), "Strings", MaestroGreybox.HighlightSoft, MaestroGreybox.HighlightSoft, "API : Strings/Musician_1 Body doux (section impliquée)");
+                            _panel.GetHighlight("Strings").SetMusicianHighlighted(5, true);
+                            NextPhase(60);
+                        }
+                        break;
+                    case 60:
+                        if (t >= 0.6)
+                        {
+                            float lo = MaestroGreybox.HighlightStrong - MaestroGreybox.HighlightPulseAmplitude, hi = MaestroGreybox.HighlightStrong + MaestroGreybox.HighlightPulseAmplitude;
+                            CheckEmission(Body("Strings", 5), "Strings", lo, hi, "API SetMusicianHighlighted(5, true) : Strings/Musician_6 Body fort");
+                            CheckEmission(Body("Strings", 2), "Strings", MaestroGreybox.HighlightSoft, MaestroGreybox.HighlightSoft, "API : Strings/Musician_3 Body redescendu en doux (un seul fort par section)");
+                            Check(_panel.GetHighlight("Strings").HighlightedMusician == 5, "API : HighlightedMusician=" + _panel.GetHighlight("Strings").HighlightedMusician + " (attendu 5)");
+                            _panel.GetHighlight("Strings").ClearAll();
+                            NextPhase(61);
+                        }
+                        break;
+                    case 61:
+                        if (t >= 0.6)
+                        {
+                            CheckOff(Body("Strings", 5), "API ClearAll : Strings/Musician_6 Body éteint");
+                            CheckOff(Body("Strings", 0), "API ClearAll : Strings/Musician_1 Body éteint");
+                            Check(!_panel.GetHighlight("Strings").SectionHighlighted && _panel.GetHighlight("Strings").HighlightedMusician == -1, "API ClearAll : SectionHighlighted=" + _panel.GetHighlight("Strings").SectionHighlighted + ", HighlightedMusician=" + _panel.GetHighlight("Strings").HighlightedMusician + " (attendu False / -1)");
                             Click("OnClose");
                             NextPhase(14);
                         }

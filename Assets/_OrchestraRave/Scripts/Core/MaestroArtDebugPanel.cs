@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using Maestro.Environment;
+using TMPro;
 using Unity.XR.CoreUtils;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -47,6 +49,22 @@ namespace Maestro.Core
         [Tooltip("Groupe (sous la racine Environment) des poursuites de scène et du fill : le bouton Poursuites on/off bascule enabled sur ses Lights.")]
         public string poursuitesName = "Poursuites";
 
+        [Header("Bouton Rave (bascule, v9)")]
+        [Tooltip("Libellé du bouton Rave (rempli par le build) : « Rave » à l'opéra ou en retour vers l'opéra, « Retour théâtre » en rave ou en transition vers le rave.")]
+        public TextMeshProUGUI raveLabel;
+        public string raveLabelOpera = "Rave";
+        public string raveLabelRave = "Retour théâtre";
+        public string raveStateName = "Rave";
+
+        [Header("Bouton Highlight test (v10)")]
+        [Tooltip("Libellé du bouton Highlight test (rempli par le build) : affiche l'étape courante du cycle.")]
+        public TextMeshProUGUI highlightLabel;
+        public string highlightLabelIdle = "Highlight test";
+        /// <summary>Cycle du bouton : section visée, index du musicien (−1 = section entière), libellé ; la dernière étape est ClearAll. Chaque étape part de tout éteint.</summary>
+        public static readonly string[] HighlightCycleSections = { "Strings", "Strings", "Vent", "Brass", "Percution", null };
+        public static readonly int[] HighlightCycleMusicians = { -1, 2, 0, -1, 1, -1 };
+        public static readonly string[] HighlightCycleLabels = { "Strings section", "Strings musicien 3", "Vent musicien 1", "Brass section", "Percution musicien 2", "ClearAll" };
+
         const string Tag = "[MaestroArtDebugPanel] ";
         static readonly List<XRHandSubsystem> s_HandSubsystems = new List<XRHandSubsystem>();
 
@@ -56,6 +74,8 @@ namespace Maestro.Core
         readonly List<Light> _spots = new List<Light>();
         readonly List<GameObject> _lasers = new List<GameObject>();
         readonly List<Light> _poursuites = new List<Light>();
+        readonly Dictionary<string, SectionHighlight> _highlights = new Dictionary<string, SectionHighlight>();
+        int _highlightStep = -1;
 
         XRHandSubsystem _hands;
         XROrigin _origin;
@@ -80,6 +100,7 @@ namespace Maestro.Core
             if (F1Pressed()) TogglePanel();
 #endif
             UpdateGesture();
+            RefreshRaveLabel();
         }
 
 #if UNITY_EDITOR
@@ -106,6 +127,8 @@ namespace Maestro.Core
             _spots.Clear();
             _lasers.Clear();
             _poursuites.Clear();
+            _highlights.Clear();
+            _highlightStep = -1;
             GameObject[] roots = SceneManager.GetActiveScene().GetRootGameObjects();
 
             GameObject env = FindRoot(roots, environmentName);
@@ -127,6 +150,9 @@ namespace Maestro.Core
                 GameObject s = FindRoot(roots, name);
                 if (s == null) { Debug.LogWarning(Tag + "cible manquante : section « " + name + " »."); continue; }
                 _musicians.AddRange(s.GetComponentsInChildren<Animator>(true));
+                SectionHighlight hl = s.GetComponent<SectionHighlight>();
+                if (hl != null) _highlights[name] = hl;
+                else Debug.LogWarning(Tag + "cible manquante : SectionHighlight sur la racine « " + name + " ».");
             }
             if (_musicians.Count == 0) Debug.LogWarning(Tag + "aucun Animator de musicien trouvé sous les sections.");
 
@@ -147,7 +173,29 @@ namespace Maestro.Core
 
         // ------------------------------------------------------------------ boutons (câblés par le build)
 
-        public void OnRave() { Trigger(_environment, "Rave", environmentName); }
+        /// <summary>v9 : bascule. À l'opéra (ou en retour vers l'opéra) → trigger Rave ; en rave (ou en transition vers le rave) → trigger Reset.
+        /// EnvironmentMood reprend une transition en cours à l'instant miroir, sans saut. Le bouton Reset séparé reste disponible.</summary>
+        public void OnRave()
+        {
+            if (_environment == null) { Debug.LogWarning(Tag + "« " + environmentName + " » introuvable : bascule Rave ignorée."); return; }
+            bool inRave = IsInRave();
+            _environment.ResetTrigger(inRave ? "Rave" : "Reset");
+            _environment.SetTrigger(inRave ? "Reset" : "Rave");
+        }
+
+        /// <summary>Vrai en état Rave (transition vers le rave ou rave installé).</summary>
+        public bool IsInRave()
+        {
+            if (_environment == null) return false;
+            return _environment.GetCurrentAnimatorStateInfo(0).IsName(raveStateName) || (_environment.IsInTransition(0) && _environment.GetNextAnimatorStateInfo(0).IsName(raveStateName));
+        }
+
+        void RefreshRaveLabel()
+        {
+            if (raveLabel == null || _environment == null) return;
+            string s = IsInRave() ? raveLabelRave : raveLabelOpera;
+            if (raveLabel.text != s) raveLabel.text = s;
+        }
         public void OnReset() { Trigger(_environment, "Reset", environmentName); }
         public void OnDrop() { Trigger(_speakers, "Drop", speakersName); }
         public void OnMusiciansPlay() { MusiciansTrigger("Play"); }
@@ -177,6 +225,34 @@ namespace Maestro.Core
             bool anyOn = false;
             foreach (Light l in _poursuites) if (l != null && l.enabled) { anyOn = true; break; }
             foreach (Light l in _poursuites) if (l != null) l.enabled = !anyOn;
+        }
+
+        /// <summary>v10 : étape courante du cycle Highlight test (−1 : aucune).</summary>
+        public int HighlightStep { get { return _highlightStep; } }
+
+        /// <summary>v10 : SectionHighlight d'une section trouvée au démarrage (null si absent).</summary>
+        public SectionHighlight GetHighlight(string section)
+        {
+            SectionHighlight h;
+            return _highlights.TryGetValue(section, out h) ? h : null;
+        }
+
+        /// <summary>v10 : cycle Strings section → Strings musicien 3 → Vent musicien 1 → Brass section → Percution musicien 2 → ClearAll (puis recommence) ;
+        /// chaque étape part de tout éteint ; le libellé du bouton affiche l'étape courante.</summary>
+        public void OnHighlightTest()
+        {
+            if (_highlights.Count == 0) { Debug.LogWarning(Tag + "Highlight : aucun SectionHighlight sur les sections."); return; }
+            _highlightStep = (_highlightStep + 1) % HighlightCycleLabels.Length;
+            foreach (SectionHighlight h in _highlights.Values) if (h != null) h.ClearAll();
+            string section = HighlightCycleSections[_highlightStep];
+            if (section != null)
+            {
+                SectionHighlight target = GetHighlight(section);
+                if (target == null) Debug.LogWarning(Tag + "Highlight : section « " + section + " » sans SectionHighlight.");
+                else if (HighlightCycleMusicians[_highlightStep] < 0) target.SetSectionHighlighted(true);
+                else target.SetMusicianHighlighted(HighlightCycleMusicians[_highlightStep], true);
+            }
+            if (highlightLabel != null) highlightLabel.text = "Highlight : " + HighlightCycleLabels[_highlightStep];
         }
 
         public void OnClose() { HidePanel(); }
