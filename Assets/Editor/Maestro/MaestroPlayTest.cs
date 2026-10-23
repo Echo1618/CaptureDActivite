@@ -44,6 +44,13 @@ namespace Maestro.EditorTools
         static readonly Quaternion LookBack = Quaternion.Euler(0f, 180f, 0f);
         static float _pulseMin, _pulseMax;
         static readonly MaterialPropertyBlock s_Block = new MaterialPropertyBlock();
+        // v11 : séquence rave
+        static RaveSequence _seq;
+        static readonly List<string> _phaseLog = new List<string>();
+        static double _seqStart, _tCountdown, _tDrop, _tTransform, _tParty;
+        static bool _capturedCountdown, _checkedDrop, _checkedTransformImpact;
+        static readonly List<float> _scaleSamples = new List<float>();
+        static readonly List<double> _scaleTimes = new List<double>();
 
         static Animator _env;
         static EnvironmentMood _mood;
@@ -270,6 +277,78 @@ namespace Maestro.EditorTools
             foreach (Light l in _spots) if (l != null) l.enabled = on;
         }
 
+        // ---- v11 : séquence rave ----
+        static void OnPhase(string phase)
+        {
+            double ts = EditorApplication.timeSinceStartup - _seqStart;
+            _phaseLog.Add(ts.ToString("F2") + " s : " + phase);
+            _sb.AppendLine("  [" + ts.ToString("F2") + " s] phase " + phase + " | rave=" + _mood.rave.ToString("F3") + ", Speaker_1.y=" + _spkFirst.localPosition.y.ToString("F2") + ", état Environment=" + EnvState() + ", caissons " + (_speakers.GetCurrentAnimatorStateInfo(0).IsName("Dropped") ? "Dropped" : "Hidden"));
+            if (phase == RaveSequence.PhaseCountdown) _tCountdown = ts;
+            else if (phase == RaveSequence.PhaseDrop) _tDrop = ts;
+            else if (phase == RaveSequence.PhaseTransform)
+            {
+                _tTransform = ts;
+                Check(Mathf.Abs(_spkFirst.localPosition.y - MaestroGreybox.SpeakerRestY) < 0.05f && _speakers.GetCurrentAnimatorStateInfo(0).IsName("Dropped"), "Impact (début de Transform) : caissons posés (Speaker_1.y=" + _spkFirst.localPosition.y.ToString("F2") + ", attendu " + MaestroGreybox.SpeakerRestY + ") avant le trigger Rave");
+            }
+            else if (phase == RaveSequence.PhaseParty)
+            {
+                _tParty = ts;
+                Check(_mood.rave >= 0.999f, "Passage en Party : rave=" + _mood.rave.ToString("F3") + " (attendu 1 avant Party)");
+            }
+        }
+
+        static int PulsesEnabled()
+        {
+            int n = 0;
+            if (_speakers != null) foreach (SpeakerPulse p in _speakers.GetComponentsInChildren<SpeakerPulse>(true)) if (p.enabled) n++;
+            return n;
+        }
+
+        static int NotesPlaying()
+        {
+            int n = 0;
+            if (_speakers != null) foreach (ParticleSystem ps in _speakers.GetComponentsInChildren<ParticleSystem>(true)) if (ps.isEmitting) n++;
+            return n;
+        }
+
+        static int NotesAlive()
+        {
+            int n = 0;
+            if (_speakers != null) foreach (ParticleSystem ps in _speakers.GetComponentsInChildren<ParticleSystem>(true)) n += ps.particleCount;
+            return n;
+        }
+
+        static bool ColorNear(Color a, Color b, float eps) { return Mathf.Abs(a.r - b.r) < eps && Mathf.Abs(a.g - b.g) < eps && Mathf.Abs(a.b - b.b) < eps; }
+
+        /// <summary>Période des pulsations de Speaker_1/Model : fronts descendants de l'échelle Y sous 0,975 ; attendu 60/128 s ± 5 %.</summary>
+        static bool PulsePeriod(out string msg)
+        {
+            var beats = new List<double>();
+            bool below = false;
+            float minS = float.MaxValue, maxS = float.MinValue;
+            for (int i = 0; i < _scaleSamples.Count; i++)
+            {
+                float s = _scaleSamples[i];
+                minS = Mathf.Min(minS, s);
+                maxS = Mathf.Max(maxS, s);
+                bool b = s < 0.975f;
+                if (b && !below) beats.Add(_scaleTimes[i]);
+                below = b;
+            }
+            double expected = 60.0 / 128.0;
+            if (beats.Count < 3)
+            {
+                msg = "Pulsation de Speaker_1/Model : " + beats.Count + " temps détecté(s) sur " + _scaleSamples.Count + " échantillons (attendu ≥ 3 ; échelle Y " + minS.ToString("F3") + " → " + maxS.ToString("F3") + ")";
+                return false;
+            }
+            double sum = 0, maxDev = 0;
+            for (int i = 1; i < beats.Count; i++) { double p = beats[i] - beats[i - 1]; sum += p; maxDev = Math.Max(maxDev, Math.Abs(p - expected)); }
+            double mean = sum / (beats.Count - 1);
+            bool ok = Math.Abs(mean - expected) <= expected * 0.05 && minS <= 0.95f && maxS >= 0.999f;
+            msg = "Pulsation de Speaker_1/Model : " + beats.Count + " temps en " + (beats[beats.Count - 1] - beats[0]).ToString("F2") + " s, période moyenne " + mean.ToString("F4") + " s (attendu " + expected.ToString("F4") + " ± 5 % à 128 BPM, écart max " + maxDev.ToString("F3") + " s), échelle Y " + minS.ToString("F3") + " → " + maxS.ToString("F3") + " (attendu 0,94 → 1)";
+            return ok;
+        }
+
         static string RaveLabel() { return _panel != null && _panel.raveLabel != null ? _panel.raveLabel.text : "?"; }
         static string HighlightLabel() { return _panel != null && _panel.highlightLabel != null ? _panel.highlightLabel.text : "?"; }
 
@@ -428,6 +507,7 @@ namespace Maestro.EditorTools
             if (envGo == null) { _sb.AppendLine("PROBLEME: Environment introuvable"); return false; }
             _env = envGo.GetComponent<Animator>();
             _mood = envGo.GetComponent<EnvironmentMood>();
+            _seq = envGo.GetComponent<RaveSequence>();
             _opera = envGo.transform.Find("OperaShell");
             _castle = envGo.transform.Find("CastleShell");
             _dome = envGo.transform.Find(MaestroGreybox.DomePath);
@@ -883,6 +963,138 @@ namespace Maestro.EditorTools
                         if (t >= 1.5)
                         {
                             Check(_panel.HoldProgress == 0f, "Détecteur de geste : hand tracking actif=" + _panel.HandTrackingAvailable + ", progression=" + _panel.HoldProgress + ", état final Environment=" + EnvState() + " (" + Sample() + ")");
+                            NextPhase(70);
+                        }
+                        break;
+                    case 70:
+                        _sb.AppendLine("=== Séquence rave (v11) : StartSequence() par script, journal horodaté des phases via OnPhaseChanged ===");
+                        if (_seq == null) { Check(false, "RaveSequence absent de Environment"); Finish("FAIL", "RaveSequence absent"); return; }
+                        _phaseLog.Clear();
+                        _seq.OnPhaseChanged -= OnPhase;
+                        _seq.OnPhaseChanged += OnPhase;
+                        _seqStart = EditorApplication.timeSinceStartup;
+                        _tCountdown = _tDrop = _tTransform = _tParty = -1;
+                        _capturedCountdown = _checkedDrop = _checkedTransformImpact = false;
+                        _scaleSamples.Clear();
+                        _scaleTimes.Clear();
+                        _seq.StartSequence();
+                        Check(_seq.IsRunning && _seq.Phase == RaveSequence.PhaseCountdown, "StartSequence() : IsRunning=" + _seq.IsRunning + ", phase " + _seq.Phase + " (attendu True / Countdown)");
+                        _seq.StartSequence();
+                        Check(_seq.Phase == RaveSequence.PhaseCountdown && _phaseLog.Count == 1, "StartSequence() pendant l'exécution : ignoré (phases journalisées : " + _phaseLog.Count + ", attendu 1)");
+                        NextPhase(71);
+                        break;
+                    case 71:
+                    {
+                        double ts = EditorApplication.timeSinceStartup - _seqStart;
+                        string ph = _seq.Phase;
+                        if (ph == RaveSequence.PhaseCountdown && !_capturedCountdown && ts >= 1.4)
+                        {
+                            _capturedCountdown = true;
+                            string digit = _seq.countdownText != null ? _seq.countdownText.text : "?";
+                            Check(digit == "2" && _seq.countdownPanel != null && _seq.countdownPanel.activeSelf, "Countdown à " + ts.ToString("F2") + " s : chiffre « " + digit + " », panneau actif=" + (_seq.countdownPanel != null && _seq.countdownPanel.activeSelf) + " (attendu « 2 », actif)");
+                            Check(Mathf.Abs(_mood.operaDim - 0.5f) < 0.01f && Mathf.Abs(_lustre.intensity - MaestroGreybox.LustreIntensity * 0.5f) < 0.05f, "Lumières d'opéra au 2e chiffre : operaDim=" + _mood.operaDim.ToString("F2") + ", lustre " + _lustre.intensity.ToString("F2") + " (attendu 0,5 et " + (MaestroGreybox.LustreIntensity * 0.5f) + ")");
+                            MaestroScreenshot.CaptureView(_sb, Eye, Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v11-countdown.png"));
+                        }
+                        if (ph == RaveSequence.PhaseDrop && !_checkedDrop && _tDrop >= 0 && ts - _tDrop >= 1.0)
+                        {
+                            _checkedDrop = true;
+                            Check(_seq.countdownPanel == null || !_seq.countdownPanel.activeSelf, "Drop : compte à rebours caché");
+                            Check(PulsesEnabled() == 0 && NotesPlaying() == 0, "Drop : caissons sans pulsation (" + PulsesEnabled() + " SpeakerPulse actifs) ni particules (" + NotesPlaying() + " émetteurs en lecture)");
+                            Check(_spkFirst.localPosition.y > MaestroGreybox.SpeakerRestY + 1f, "Drop +1 s : caissons en chute (Speaker_1.y=" + _spkFirst.localPosition.y.ToString("F1") + ")");
+                        }
+                        if (ph == RaveSequence.PhaseTransform && !_checkedTransformImpact && _tTransform >= 0 && ts - _tTransform >= 0.5)
+                        {
+                            _checkedTransformImpact = true;
+                            bool landed = _speakers.GetCurrentAnimatorStateInfo(0).IsName("Dropped") && Mathf.Abs(_spkFirst.localPosition.y - MaestroGreybox.SpeakerRestY) < 0.01f;
+                            Check(landed && EnvState() == "Opera" && Mathf.Abs(_opera.localPosition.y) < 0.01f, "Transform +0,5 s : caissons posés=" + landed + " (Speaker_1.y=" + _spkFirst.localPosition.y.ToString("F2") + "), théâtre intact (état " + EnvState() + ", opera.y=" + _opera.localPosition.y.ToString("F2") + ") avant le trigger Rave");
+                            MaestroScreenshot.CaptureView(_sb, Eye, Quaternion.identity, 65f, Path.Combine(MaestroScreenshot.Dir, "v11-drop-theatre.png"));
+                        }
+                        if (ph == RaveSequence.PhaseParty) { NextPhase(72); break; }
+                        if (ts > 30) { Check(false, "Séquence : Party non atteinte en 30 s (phase " + ph + ")"); _seq.AbortSequence(); NextPhase(76); }
+                        break;
+                    }
+                    case 72:
+                    {
+                        Transform model = _spkFirst.Find("Model");
+                        if (model != null) { _scaleSamples.Add(model.localScale.y); _scaleTimes.Add(EditorApplication.timeSinceStartup); }
+                        if (t >= 5.5)
+                        {
+                            Check(Math.Abs(_tDrop - _tCountdown - (_seq.countdownSeconds + _seq.dropLabelSeconds)) < 0.3, "Durée Countdown : " + (_tDrop - _tCountdown).ToString("F2") + " s (attendu " + (_seq.countdownSeconds + _seq.dropLabelSeconds) + " : 3 s + DROP 0,4 s)");
+                            Check(Math.Abs(_tTransform - _tDrop - _seq.dropSeconds) < 0.3, "Durée Drop : " + (_tTransform - _tDrop).ToString("F2") + " s (attendu " + _seq.dropSeconds + ")");
+                            double expTransform = _seq.transformDelay + MaestroGreybox.TransitionDuration;
+                            Check(_tParty - _tTransform >= expTransform - 0.3 && _tParty - _tTransform <= expTransform + 1.0, "Durée Transform : " + (_tParty - _tTransform).ToString("F2") + " s (attendu ≈ " + expTransform + " : " + _seq.transformDelay + " s puis rave 0 → 1 en " + MaestroGreybox.TransitionDuration + " s)");
+                            Check(LasersOn() == _lasers.childCount && SpotsOn() == _spots.Length, "Party : lasers " + LasersOn() + "/" + _lasers.childCount + ", spots " + SpotsOn() + "/" + _spots.Length + " (attendu tous actifs)");
+                            Check(_mood.NeonsActive == _mood.neons.Length && _mood.neons.Length == MaestroGreybox.NeonCount, "Party : néons allumés " + _mood.NeonsActive + "/" + _mood.neons.Length + " (attendu " + MaestroGreybox.NeonCount + ", cascade terminée)");
+                            Check(CountMusiciansIn("Headbang") == MaestroGreybox.MusicianCount, "Party : " + CountMusiciansIn("Headbang") + "/" + MaestroGreybox.MusicianCount + " musiciens en Headbang");
+                            Check(PulsesEnabled() == 4, "Party : SpeakerPulse actifs " + PulsesEnabled() + "/4");
+                            int alive = NotesAlive();
+                            Check(alive > 0 && alive <= MaestroGreybox.NotesParticlesBudget && NotesPlaying() == 4, "Party : particules vivantes " + alive + " (attendu > 0 et ≤ " + MaestroGreybox.NotesParticlesBudget + "), émetteurs en lecture " + NotesPlaying() + "/4");
+                            Check(ColorNear(RenderSettings.ambientLight, _mood.ambientParty, 0.01f) && ColorNear(RenderSettings.fogColor, _mood.fogParty, 0.01f) && Mathf.Abs(RenderSettings.fogDensity - _mood.fogDensityParty) < 0.0005f, "Party : ambiant " + RenderSettings.ambientLight.ToString("F2") + " (attendu " + _mood.ambientParty.ToString("F2") + "), brouillard " + RenderSettings.fogColor.ToString("F2") + " densité " + RenderSettings.fogDensity.ToString("F4") + " (attendu " + _mood.fogParty.ToString("F2") + " / " + _mood.fogDensityParty + ")");
+                            Check(_mood.party >= 0.999f && _mood.PartyLevel >= 0.999f, "Party : EnvironmentMood.party=" + _mood.party + ", niveau " + _mood.PartyLevel.ToString("F2") + " (attendu 1 / 1)");
+                            string periodMsg;
+                            Check(PulsePeriod(out periodMsg), periodMsg);
+                            MaestroScreenshot.CaptureView(_sb, Eye, Quaternion.Euler(0f, -50f, 0f), 65f, Path.Combine(MaestroScreenshot.Dir, "v11-party.png")); // vue tournée de 50° à gauche : caissons, notes, lasers et tour gauche dans le champ
+                            Vector3 camPos = new Vector3(-8f, 3f, 2f);
+                            Vector3 tower = new Vector3(MaestroGreybox.TowerPos[0].x, 16f, MaestroGreybox.TowerPos[0].z);
+                            MaestroScreenshot.CaptureView(_sb, camPos, Quaternion.LookRotation(tower - camPos, Vector3.up), 65f, Path.Combine(MaestroScreenshot.Dir, "v11-neons.png"));
+                            _seq.AbortSequence();
+                            NextPhase(73);
+                        }
+                        break;
+                    }
+                    case 73:
+                        if (t >= 1.5)
+                        {
+                            Check(!_seq.IsRunning && _seq.Phase == RaveSequence.PhaseIdle, "AbortSequence : IsRunning=" + _seq.IsRunning + ", phase " + _seq.Phase + " (attendu False / Idle)");
+                            Check(LasersOn() == 0 && SpotsOn() == 0 && PulsesEnabled() == 0 && NotesPlaying() == 0 && _mood.NeonsActive == 0, "AbortSequence : lasers " + LasersOn() + ", spots " + SpotsOn() + ", pulsations " + PulsesEnabled() + ", émetteurs " + NotesPlaying() + ", néons " + _mood.NeonsActive + " (attendu tout à 0)");
+                            Check((_seq.countdownPanel == null || !_seq.countdownPanel.activeSelf) && _mood.party == 0f, "AbortSequence : compte à rebours caché, party=" + _mood.party);
+                            Check(_speakers.GetCurrentAnimatorStateInfo(0).IsName("Hidden") && Mathf.Abs(_spkFirst.localPosition.y - MaestroGreybox.SpeakerHiddenY) < 0.01f, "AbortSequence : caissons en Hidden (Speaker_1.y=" + _spkFirst.localPosition.y.ToString("F1") + ", attendu " + MaestroGreybox.SpeakerHiddenY + ")");
+                            Check(CountMusiciansIn("Idle") == MaestroGreybox.MusicianCount, "AbortSequence : " + CountMusiciansIn("Idle") + "/" + MaestroGreybox.MusicianCount + " musiciens en Idle (Stop)");
+                            NextPhase(74);
+                        }
+                        break;
+                    case 74:
+                        if (t >= 6.5)
+                        {
+                            Check(EnvState() == "Opera" && _mood.rave < 0.001f, "AbortSequence : retour à l'opéra (état " + EnvState() + ", rave=" + _mood.rave.ToString("F3") + ")");
+                            _phaseLog.Clear();
+                            _seqStart = EditorApplication.timeSinceStartup;
+                            _tCountdown = _tDrop = _tTransform = _tParty = -1;
+                            _seq.StartSequence();
+                            Check(_seq.IsRunning, "Second StartSequence() : IsRunning=" + _seq.IsRunning);
+                            NextPhase(75);
+                        }
+                        break;
+                    case 75:
+                        if (_seq.Phase == RaveSequence.PhaseParty)
+                        {
+                            Check(_tParty > 0 && LasersOn() == _lasers.childCount && _mood.rave >= 0.999f, "Second passage : Party atteinte à " + _tParty.ToString("F2") + " s, lasers " + LasersOn() + "/" + _lasers.childCount + ", rave=" + _mood.rave.ToString("F3") + " (séquence rejouable)");
+                            _seq.AbortSequence();
+                            NextPhase(76);
+                        }
+                        else if (t > 30) { Check(false, "Second passage : Party non atteinte en 30 s (phase " + _seq.Phase + ")"); _seq.AbortSequence(); NextPhase(76); }
+                        break;
+                    case 76:
+                        if (t >= 7.5)
+                        {
+                            Check(EnvState() == "Opera" && !_seq.IsRunning, "Avant les triggers seuls : état " + EnvState() + ", IsRunning=" + _seq.IsRunning + " (attendu Opera / False)");
+                            _env.SetTrigger("Rave");
+                            NextPhase(77);
+                        }
+                        break;
+                    case 77:
+                        if (t >= 7.0)
+                        {
+                            Check(EnvState() == "Rave" && _mood.rave >= 0.999f && !_seq.IsRunning && LasersOn() == 0 && _mood.NeonsActive == 0 && PulsesEnabled() == 0, "Trigger Rave seul : rave=" + _mood.rave.ToString("F3") + ", séquence inactive, lasers " + LasersOn() + ", néons " + _mood.NeonsActive + ", pulsations " + PulsesEnabled() + " (attendu rave 1 sans party)");
+                            _env.SetTrigger("Reset");
+                            NextPhase(78);
+                        }
+                        break;
+                    case 78:
+                        if (t >= 7.0)
+                        {
+                            Check(EnvState() == "Opera" && _mood.rave < 0.001f, "Trigger Reset seul : état " + EnvState() + ", rave=" + _mood.rave.ToString("F3") + " (attendu Opera / 0)");
+                            _seq.OnPhaseChanged -= OnPhase;
                             Finish(_failures == 0 ? "OK" : "FAIL", _failures == 0 ? null : _failures + " contrôle(s) en échec");
                         }
                         break;

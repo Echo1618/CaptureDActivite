@@ -65,6 +65,14 @@ namespace Maestro.Core
         public static readonly int[] HighlightCycleMusicians = { -1, 2, 0, -1, 1, -1 };
         public static readonly string[] HighlightCycleLabels = { "Strings section", "Strings musicien 3", "Vent musicien 1", "Brass section", "Percution musicien 2", "ClearAll" };
 
+        [Header("Geste cornes à deux mains (v11 : séquence rave)")]
+        [Tooltip("Index et auriculaire tendus (courbure ≤ hornsExtendedMaxAngle), majeur et annulaire repliés (≥ hornsFoldedMinAngle), pouce replié ou le long de la paume, sur les deux mains au-dessus de la taille (minHeight), maintenu hornsHoldSeconds.")]
+        public float hornsHoldSeconds = 1.5f;
+        public float hornsExtendedMaxAngle = 25f;
+        public float hornsFoldedMinAngle = 70f;
+        public float thumbFoldedMinAngle = 35f;
+        public float thumbPalmMaxDistance = 0.08f;
+
         const string Tag = "[MaestroArtDebugPanel] ";
         static readonly List<XRHandSubsystem> s_HandSubsystems = new List<XRHandSubsystem>();
 
@@ -76,6 +84,9 @@ namespace Maestro.Core
         readonly List<Light> _poursuites = new List<Light>();
         readonly Dictionary<string, SectionHighlight> _highlights = new Dictionary<string, SectionHighlight>();
         int _highlightStep = -1;
+        RaveSequence _sequence;
+        float _hornsHold;
+        bool _hornsLatched;
 
         XRHandSubsystem _hands;
         XROrigin _origin;
@@ -86,10 +97,13 @@ namespace Maestro.Core
         public bool IsPanelVisible { get { return panel != null && panel.activeSelf; } }
         public float HoldProgress { get { return holdSeconds > 0f ? Mathf.Clamp01(_hold / holdSeconds) : 0f; } }
         public bool HandTrackingAvailable { get { return _hands != null && _hands.running; } }
+        public float HornsProgress { get { return hornsHoldSeconds > 0f ? Mathf.Clamp01(_hornsHold / hornsHoldSeconds) : 0f; } }
+        public RaveSequence Sequence { get { return _sequence; } }
 
         void Start()
         {
             FindTargets();
+            Debug.Log(MaestroOrchestraApi.Diagnose()); // v12 : même diagnostic que celui des devs (MaestroOrchestraApi)
             if (panel != null) panel.SetActive(false);
             if (progressRoot != null) progressRoot.SetActive(false);
         }
@@ -98,6 +112,7 @@ namespace Maestro.Core
         {
 #if UNITY_EDITOR
             if (F1Pressed()) TogglePanel();
+            if (F2Pressed()) OnRaveSequence();
 #endif
             UpdateGesture();
             RefreshRaveLabel();
@@ -110,6 +125,17 @@ namespace Maestro.Core
             return Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame;
 #elif ENABLE_LEGACY_INPUT_MANAGER
             return Input.GetKeyDown(KeyCode.F1);
+#else
+            return false;
+#endif
+        }
+
+        static bool F2Pressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            return Keyboard.current != null && Keyboard.current.f2Key.wasPressedThisFrame;
+#elif ENABLE_LEGACY_INPUT_MANAGER
+            return Input.GetKeyDown(KeyCode.F2);
 #else
             return false;
 #endif
@@ -134,6 +160,8 @@ namespace Maestro.Core
             GameObject env = FindRoot(roots, environmentName);
             if (env != null) _environment = env.GetComponent<Animator>();
             if (_environment == null) Debug.LogWarning(Tag + "cible manquante : racine « " + environmentName + " » avec un Animator (triggers Rave / Reset).");
+            _sequence = env != null ? env.GetComponent<RaveSequence>() : null;
+            if (_sequence == null) Debug.LogWarning(Tag + "cible manquante : RaveSequence sur « " + environmentName + " » (bouton Séquence rave, geste cornes, F2).");
             if (env != null)
             {
                 foreach (Transform t in env.GetComponentsInChildren<Transform>(true))
@@ -255,6 +283,19 @@ namespace Maestro.Core
             if (highlightLabel != null) highlightLabel.text = "Highlight : " + HighlightCycleLabels[_highlightStep];
         }
 
+        /// <summary>v11 : lance la séquence rave complète (compte à rebours → Drop → Rave → Party) ; même action que le geste « cornes » et F2.
+        /// v12 : passe par MaestroOrchestraApi, pour tester exactement le point d'entrée des devs (warning de l'API si une cible manque).</summary>
+        public void OnRaveSequence()
+        {
+            MaestroOrchestraApi.StartRaveSequence();
+        }
+
+        /// <summary>v11 : interrompt la séquence (retour à l'opéra via Reset, tout éteint). v12 : passe par MaestroOrchestraApi.</summary>
+        public void OnAbortSequence()
+        {
+            MaestroOrchestraApi.AbortRaveSequence();
+        }
+
         public void OnClose() { HidePanel(); }
 
         void Trigger(Animator a, string trigger, string targetName)
@@ -309,7 +350,7 @@ namespace Maestro.Core
             return _origin != null ? _origin.Camera : null;
         }
 
-        // ------------------------------------------------------------------ geste mains jointes
+        // ------------------------------------------------------------------ gestes : mains jointes (panneau) et cornes à deux mains (séquence rave, v11)
 
         void UpdateGesture()
         {
@@ -322,12 +363,12 @@ namespace Maestro.Core
                     SubsystemManager.GetSubsystems(s_HandSubsystems);
                     foreach (XRHandSubsystem s in s_HandSubsystems) if (s.running) { _hands = s; break; }
                 }
-                if (_hands == null) { Hold(false, Vector3.zero); return; }
+                if (_hands == null) { HoldJoined(false); HoldHorns(false); ShowProgress(false, Vector3.zero, 0f); return; }
             }
 
             XRHand left = _hands.leftHand;
             XRHand right = _hands.rightHand;
-            bool ok = false;
+            bool joined = false, horns = false;
             Vector3 mid = Vector3.zero;
             Pose pl, pr;
             if (left.isTracked && right.isTracked
@@ -345,35 +386,66 @@ namespace Maestro.Core
                 float floorY = o != null ? o.position.y : 0f;
                 mid = (posL + posR) * 0.5f;
                 float height = mid.y - floorY;
-                ok = Vector3.Distance(posL, posR) <= maxPalmDistance
+                joined = Vector3.Distance(posL, posR) <= maxPalmDistance
                      && height >= minHeight && height <= maxHeight
                      && Vector3.Dot(backL, backR) <= maxFacingDot;
+                horns = posL.y - floorY >= minHeight && posR.y - floorY >= minHeight && IsHorns(left) && IsHorns(right);
             }
-            Hold(ok, mid);
+            HoldJoined(joined);
+            HoldHorns(horns);
+            if (horns && !_hornsLatched) ShowProgress(true, mid, HornsProgress);
+            else if (joined && !_latched) ShowProgress(true, mid, HoldProgress);
+            else ShowProgress(false, mid, 0f);
         }
 
-        void Hold(bool conditionMet, Vector3 mid)
+        void HoldJoined(bool conditionMet)
         {
-            if (!conditionMet)
-            {
-                _hold = 0f;
-                _latched = false;
-                ShowProgress(false, mid);
-                return;
-            }
-            if (_latched) { ShowProgress(false, mid); return; } // déjà déclenché : attendre que les mains se séparent
+            if (!conditionMet) { _hold = 0f; _latched = false; return; }
+            if (_latched) return; // déjà déclenché : attendre que les mains se séparent
             _hold += Time.deltaTime;
-            ShowProgress(true, mid);
-            if (_hold >= holdSeconds)
-            {
-                _hold = 0f;
-                _latched = true;
-                ShowProgress(false, mid);
-                TogglePanel();
-            }
+            if (_hold >= holdSeconds) { _hold = 0f; _latched = true; TogglePanel(); }
         }
 
-        void ShowProgress(bool visible, Vector3 mid)
+        void HoldHorns(bool conditionMet)
+        {
+            if (!conditionMet) { _hornsHold = 0f; _hornsLatched = false; return; }
+            if (_hornsLatched) return;
+            _hornsHold += Time.deltaTime;
+            if (_hornsHold >= hornsHoldSeconds) { _hornsHold = 0f; _hornsLatched = true; OnRaveSequence(); }
+        }
+
+        /// <summary>v11 : cornes : index et auriculaire tendus, majeur et annulaire repliés, pouce replié ou le long de la paume (angles et distances invariants par repère).</summary>
+        bool IsHorns(XRHand hand)
+        {
+            float index = FingerCurl(hand, XRHandJointID.IndexMetacarpal, XRHandJointID.IndexProximal, XRHandJointID.IndexIntermediate, XRHandJointID.IndexTip);
+            float little = FingerCurl(hand, XRHandJointID.LittleMetacarpal, XRHandJointID.LittleProximal, XRHandJointID.LittleIntermediate, XRHandJointID.LittleTip);
+            float middle = FingerCurl(hand, XRHandJointID.MiddleMetacarpal, XRHandJointID.MiddleProximal, XRHandJointID.MiddleIntermediate, XRHandJointID.MiddleTip);
+            float ring = FingerCurl(hand, XRHandJointID.RingMetacarpal, XRHandJointID.RingProximal, XRHandJointID.RingIntermediate, XRHandJointID.RingTip);
+            if (index < 0f || little < 0f || middle < 0f || ring < 0f) return false;
+            return index <= hornsExtendedMaxAngle && little <= hornsExtendedMaxAngle
+                && middle >= hornsFoldedMinAngle && ring >= hornsFoldedMinAngle && ThumbFolded(hand);
+        }
+
+        /// <summary>Courbure d'un doigt : angle entre la direction métacarpe → phalange proximale et la direction phalange intermédiaire → bout (0° tendu). −1 si une articulation manque.</summary>
+        static float FingerCurl(XRHand hand, XRHandJointID metacarpal, XRHandJointID proximal, XRHandJointID intermediate, XRHandJointID tip)
+        {
+            Pose pm, pp, pi, pt;
+            if (!hand.GetJoint(metacarpal).TryGetPose(out pm) || !hand.GetJoint(proximal).TryGetPose(out pp)
+                || !hand.GetJoint(intermediate).TryGetPose(out pi) || !hand.GetJoint(tip).TryGetPose(out pt)) return -1f;
+            return Vector3.Angle(pp.position - pm.position, pt.position - pi.position);
+        }
+
+        bool ThumbFolded(XRHand hand)
+        {
+            Pose pm, pp, pd, pt, palm;
+            if (!hand.GetJoint(XRHandJointID.ThumbMetacarpal).TryGetPose(out pm) || !hand.GetJoint(XRHandJointID.ThumbProximal).TryGetPose(out pp)
+                || !hand.GetJoint(XRHandJointID.ThumbDistal).TryGetPose(out pd) || !hand.GetJoint(XRHandJointID.ThumbTip).TryGetPose(out pt)
+                || !hand.GetJoint(XRHandJointID.Palm).TryGetPose(out palm)) return false;
+            float curl = Vector3.Angle(pp.position - pm.position, pt.position - pd.position);
+            return curl >= thumbFoldedMinAngle || Vector3.Distance(pt.position, palm.position) <= thumbPalmMaxDistance;
+        }
+
+        void ShowProgress(bool visible, Vector3 mid, float progress)
         {
             if (progressRoot == null) return;
             if (progressRoot.activeSelf != visible) progressRoot.SetActive(visible);
@@ -382,7 +454,7 @@ namespace Maestro.Core
             Camera cam = HeadCamera();
             Quaternion rot = cam != null ? Quaternion.LookRotation(pos - cam.transform.position, Vector3.up) : Quaternion.identity;
             progressRoot.transform.SetPositionAndRotation(pos, rot);
-            if (progressImage != null) progressImage.fillAmount = HoldProgress;
+            if (progressImage != null) progressImage.fillAmount = progress;
         }
     }
 }

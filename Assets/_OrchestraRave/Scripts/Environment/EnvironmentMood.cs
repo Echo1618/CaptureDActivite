@@ -55,6 +55,34 @@ namespace Maestro.Environment
         public string operaState = "Opera";
         public const int FlatReflectionSize = 4;
 
+        [Header("Party (v11 : ambiance néon, pilotée par RaveSequence)")]
+        [Range(0f, 1f)] [Tooltip("1 en phase Party ; interpolé en partyFadeSeconds. Remis à 0 dès que l'Animator quitte l'état Rave (Reset).")]
+        public float party = 0f;
+        public float partyFadeSeconds = 1f;
+        [Range(0f, 1f)] [Tooltip("Compte à rebours : les lumières d'opéra sont multipliées par (1 − operaDim).")]
+        public float operaDim = 0f;
+        public Color torchColor = new Color(1f, 150f / 255f, 60f / 255f);
+        public Color torchColorParty = new Color(1f, 40f / 255f, 200f / 255f);
+        public float torchPartyGain = 1.3f;
+        public Color moonEmissionColorParty = new Color(120f / 255f, 230f / 255f, 1f);
+        public float moonPartyGain = 1.5f;
+        public Color ambientParty = new Color(0.10f, 0.02f, 0.16f);
+        public Color fogParty = new Color(0.08f, 0f, 0.12f);
+        public float fogDensityParty = 0.012f;
+        public Color moonLightColorParty = new Color(160f / 255f, 120f / 255f, 1f);
+        public float moonLightIntensityParty = 0.25f;
+        [Tooltip("Bandes néon (CastleShell/Neons, remplies par le build) : désactivées hors party, allumées en cascade quand le niveau de party dépasse neonThreshold.")]
+        public GameObject[] neons = new GameObject[0];
+        public float neonThreshold = 0.5f;
+        public float neonCascadeStep = 0.06f;
+
+        /// <summary>Niveau de party effectif (interpolé).</summary>
+        public float PartyLevel { get { return _partyLevel; } }
+        public int NeonsActive { get { int n = 0; if (neons != null) foreach (GameObject g in neons) if (g != null && g.activeSelf) n++; return n; } }
+        float _partyLevel;
+        bool _neonsOn;
+        float _neonStart;
+
         static readonly int EmissionColorId = Shader.PropertyToID("_EmissionColor");
         static readonly int ExposureId = Shader.PropertyToID("_Exposure");
 
@@ -90,6 +118,7 @@ namespace Maestro.Environment
             _levelId = Animator.StringToHash(levelParameter);
             _raveId = Animator.StringToHash(raveTrigger);
             _resetId = Animator.StringToHash(resetTrigger);
+            if (neons != null) foreach (GameObject g in neons) if (g != null && g.activeSelf) g.SetActive(false);
             _moonBlock = new MaterialPropertyBlock();
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.fogMode = FogMode.Exponential;
@@ -98,7 +127,9 @@ namespace Maestro.Environment
 
         void LateUpdate()
         {
+            _partyLevel = Mathf.MoveTowards(_partyLevel, Mathf.Clamp01(party), partyFadeSeconds > 0f ? Time.deltaTime / partyFadeSeconds : 1f);
             Apply(rave);
+            UpdateNeons();
             GuardTransitions();
         }
 
@@ -116,17 +147,18 @@ namespace Maestro.Environment
 
             if (directionalLight != null)
             {
-                directionalLight.color = moonLightColor;
-                directionalLight.intensity = Mathf.Lerp(0f, moonLightIntensity, t);
+                directionalLight.color = Color.Lerp(moonLightColor, moonLightColorParty, _partyLevel);
+                directionalLight.intensity = Mathf.Lerp(0f, Mathf.Lerp(moonLightIntensity, moonLightIntensityParty, _partyLevel), t);
                 directionalLight.enabled = directionalLight.intensity > 0.001f;
             }
 
-            RenderSettings.ambientLight = Color.Lerp(ambientOpera, ambientNight, t);
-            float density = Mathf.Lerp(0f, fogDensityNight, t);
-            RenderSettings.fogColor = fogNight;
+            Color ambient = Color.Lerp(ambientOpera, Color.Lerp(ambientNight, ambientParty, _partyLevel), t);
+            RenderSettings.ambientLight = ambient;
+            float density = Mathf.Lerp(0f, Mathf.Lerp(fogDensityNight, fogDensityParty, _partyLevel), t);
+            RenderSettings.fogColor = Color.Lerp(fogNight, fogParty, _partyLevel);
             RenderSettings.fogDensity = density;
             RenderSettings.fog = density > 0.00001f;
-            ApplyReflection(Color.Lerp(ambientOpera, ambientNight, t) * reflectionGain);
+            ApplyReflection(ambient * reflectionGain);
 
             if (moonRenderer != null)
             {
@@ -134,7 +166,7 @@ namespace Maestro.Environment
                 moonRenderer.transform.localScale = Vector3.one * (moonMaxScale * u);
                 if (_moonBlock == null) _moonBlock = new MaterialPropertyBlock();
                 moonRenderer.GetPropertyBlock(_moonBlock);
-                _moonBlock.SetColor(EmissionColorId, moonEmissionColor * (Mathf.Pow(2f, moonEmissionIntensity) * u));
+                _moonBlock.SetColor(EmissionColorId, Color.Lerp(moonEmissionColor, moonEmissionColorParty, _partyLevel) * (Mathf.Pow(2f, moonEmissionIntensity) * Mathf.Lerp(1f, moonPartyGain, _partyLevel) * u));
                 moonRenderer.SetPropertyBlock(_moonBlock);
             }
 
@@ -146,7 +178,7 @@ namespace Maestro.Environment
                     Light l = operaLights[i];
                     if (l == null) continue;
                     float b = operaLightBases != null && i < operaLightBases.Length ? operaLightBases[i] : 1f;
-                    l.intensity = b * (1f - t);
+                    l.intensity = b * (1f - t) * (1f - Mathf.Clamp01(operaDim));
                     // v8 : éteinte quand l'intensité tombe à 0, rallumée seulement au retour vers l'opéra ; entre les deux, un « enabled »
                     // basculé à la main (bouton Poursuites on/off du DebugPanel) est conservé.
                     bool on = l.intensity > 0.001f;
@@ -156,9 +188,10 @@ namespace Maestro.Environment
                 }
             }
 
-            float warm = Mathf.Lerp(0.6f, 1f, t);
-            SetIntensity(torchLights, torchBase * warm);
-            SetIntensity(brazierLights, brazierBase * warm);
+            float warm = Mathf.Lerp(0.6f, 1f, t) * Mathf.Lerp(1f, torchPartyGain, _partyLevel);
+            Color flame = Color.Lerp(torchColor, torchColorParty, _partyLevel);
+            SetFlames(torchLights, torchBase * warm, flame);
+            SetFlames(brazierLights, brazierBase * warm, flame);
         }
 
         /// <summary>v9 : recolore le cubemap de réflexion uniforme (stocké en linéaire) quand la couleur change.</summary>
@@ -189,6 +222,7 @@ namespace Maestro.Environment
             if (_animator == null || !_hasTriggers || !_animator.isActiveAndEnabled) return;
             if (_hasLevel) _animator.SetFloat(_levelId, rave);
             AnimatorStateInfo st = _animator.GetCurrentAnimatorStateInfo(0);
+            if (party > 0f && !st.IsName(raveState)) party = 0f; // v11 : Reset (trigger ou AbortSequence) → fin de la party
             float n = Mathf.Clamp01(st.normalizedTime);
             const float end = 0.999f;
             if (_animator.GetBool(_resetId))
@@ -201,6 +235,35 @@ namespace Maestro.Environment
                 if (st.IsName(toOperaState) && n < end) { _animator.ResetTrigger(_raveId); _animator.Play(raveState, 0, 1f - n); }
                 else if (st.IsName(raveState)) _animator.ResetTrigger(_raveId);
             }
+        }
+
+        /// <summary>v11 : néons allumés en cascade (une bande toutes les neonCascadeStep s) quand le niveau de party dépasse neonThreshold, éteints d'un coup en dessous.</summary>
+        void UpdateNeons()
+        {
+            if (neons == null || neons.Length == 0) return;
+            bool want = _partyLevel > neonThreshold;
+            if (want && !_neonsOn) { _neonsOn = true; _neonStart = Time.time; }
+            if (!want && _neonsOn)
+            {
+                _neonsOn = false;
+                foreach (GameObject g in neons) if (g != null && g.activeSelf) g.SetActive(false);
+                return;
+            }
+            if (!_neonsOn) return;
+            float elapsed = Time.time - _neonStart;
+            for (int i = 0; i < neons.Length; i++)
+            {
+                GameObject g = neons[i];
+                if (g == null || g.activeSelf) continue;
+                if (elapsed >= i * neonCascadeStep) g.SetActive(true);
+            }
+        }
+
+        static void SetFlames(Light[] lights, float intensity, Color color)
+        {
+            if (lights == null) return;
+            for (int i = 0; i < lights.Length; i++)
+                if (lights[i] != null) { lights[i].intensity = intensity; lights[i].color = color; }
         }
 
         static void SetIntensity(Light[] lights, float value)

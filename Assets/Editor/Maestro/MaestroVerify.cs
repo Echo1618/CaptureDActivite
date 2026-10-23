@@ -341,6 +341,8 @@ namespace Maestro.EditorTools
                 sb.AppendLine("Lasers : " + total + " faisceaux (attendu " + MaestroGreybox.LaserCount + "), " + active + " actif(s) (attendu 0)");
                 if (total != MaestroGreybox.LaserCount || active != 0) problems++;
             }
+            problems += CheckRaveSequence(sb, roots);
+            problems += CheckOrchestraApi(sb);
             problems += CheckChild(sb, roots, "Baguette", "Tip");
             problems += CheckChild(sb, roots, "Baguette", "Attach");
             GameObject bag = Find(roots, "Baguette");
@@ -380,7 +382,7 @@ namespace Maestro.EditorTools
                 problems += CheckSpeakersLanding(sb, roots);
                 sb.AppendLine("--- Visibilité mode opéra (OperaShell à 0, CastleShell enterrée) ---");
                 problems += CheckVisibility(sb, roots, false);
-                EstimateRendering(sb);
+                EstimateRendering(sb, "mode opéra", 0, 0, null);
             }
             finally
             {
@@ -398,6 +400,17 @@ namespace Maestro.EditorTools
                     Physics.SyncTransforms();
                     sb.AppendLine("--- Visibilité mode rave (OperaShell à " + MaestroGreybox.OperaShellRaveY + ", CastleShell à 0, caissons posés) ---");
                     problems += CheckVisibility(sb, roots, true);
+                    // v11 : estimation en party (néons et lasers activés temporairement ; particules et spots comptés à part)
+                    var toggled = new List<GameObject>();
+                    Transform neonGroup = castleShell.Find("Neons");
+                    if (neonGroup != null) foreach (Transform c in neonGroup) if (!c.gameObject.activeSelf) { c.gameObject.SetActive(true); toggled.Add(c.gameObject); }
+                    GameObject lzParty = Find(roots, "Lasers");
+                    if (lzParty != null) foreach (Transform c in lzParty.transform) if (!c.gameObject.activeSelf) { c.gameObject.SetActive(true); toggled.Add(c.gameObject); }
+                    try
+                    {
+                        EstimateRendering(sb, "mode rave + party (néons et lasers actifs)", MaestroGreybox.NotesParticlesBudget * 2, 4, "particules de notes comptées à part : " + MaestroGreybox.NotesParticlesBudget + " billboards max = " + (MaestroGreybox.NotesParticlesBudget * 2) + " triangles et 4 batches ; " + MaestroGreybox.SpotCount + " spots StageLights per-pixel en plus (limite 4 par objet)");
+                    }
+                    finally { foreach (GameObject g in toggled) g.SetActive(false); }
                 }
                 finally
                 {
@@ -858,6 +871,263 @@ namespace Maestro.EditorTools
             return problems;
         }
 
+        // ---------------------------------------------------------------- v11 : séquence rave
+
+        /// <summary>RaveSequence câblé sans référence nulle, SpeakerPulse et NotesParticles sur les 4 caissons (désactivés / arrêtés), StageLightSweep désactivé,
+        /// néons comptés et désactivés, compte à rebours caché, Flash à 0.</summary>
+        static int CheckRaveSequence(StringBuilder sb, GameObject[] roots)
+        {
+            int problems = 0;
+            sb.AppendLine("--- Séquence rave (v11) ---");
+            GameObject env = Find(roots, "Environment");
+            RaveSequence seq = env != null ? env.GetComponent<RaveSequence>() : null;
+            if (seq == null) { sb.AppendLine("PROBLEME: RaveSequence absent de la racine Environment"); problems++; }
+            else
+            {
+                int refs = 0, nulls = 0;
+                var nullNames = new List<string>();
+                var so = new SerializedObject(seq);
+                SerializedProperty it = so.GetIterator();
+                while (it.NextVisible(true))
+                {
+                    if (it.propertyType != SerializedPropertyType.ObjectReference || it.name == "m_Script") continue;
+                    refs++;
+                    if (it.objectReferenceValue == null) { nulls++; nullNames.Add(it.propertyPath); }
+                }
+                bool ok = nulls == 0 && seq.sections != null && seq.sections.Length == MaestroGreybox.SectionPrefabs.Length && seq.speakersAnimator != null && seq.speakersAnimator.gameObject.name == "Speakers";
+                sb.AppendLine((ok ? "RaveSequence OK : " : "PROBLEME RaveSequence : ") + refs + " références objets, " + nulls + " nulle(s)" + (nulls > 0 ? " (" + string.Join(", ", nullNames) + ")" : "") + ", sections " + (seq.sections != null ? seq.sections.Length : 0) + "/" + MaestroGreybox.SectionPrefabs.Length + ", timings : countdown " + seq.countdownSeconds + " s + DROP " + seq.dropLabelSeconds + " s, drop " + seq.dropSeconds + " s, transform +" + seq.transformDelay + " s, timeout rave " + seq.raveTimeout + " s");
+                if (!ok) problems++;
+            }
+            GameObject spk = Find(roots, "Speakers");
+            if (spk != null)
+            {
+                int pulses = 0, pulsesEnabled = 0, cones = 0, emitters = 0, playing = 0, maxTotal = 0, bpmOk = 0;
+                var phases = new List<string>();
+                foreach (Transform s in spk.transform)
+                {
+                    if (!s.name.StartsWith("Speaker_")) continue;
+                    SpeakerPulse p = s.GetComponent<SpeakerPulse>();
+                    if (p != null)
+                    {
+                        pulses++;
+                        if (p.enabled) pulsesEnabled++;
+                        if (Mathf.Abs(p.bpm - 128f) < 1e-3f) bpmOk++;
+                        phases.Add(p.phaseOffsetBeats.ToString("F2"));
+                        if (p.Cone != null) cones++;
+                    }
+                    foreach (ParticleSystem ps in s.GetComponentsInChildren<ParticleSystem>(true)) { emitters++; if (ps.isPlaying) playing++; maxTotal += ps.main.maxParticles; }
+                }
+                bool pulseOk = pulses == 4 && pulsesEnabled == 0 && cones == 4 && bpmOk == 4;
+                sb.AppendLine((pulseOk ? "SpeakerPulse OK : " : "PROBLEME SpeakerPulse : ") + pulses + "/4 caissons, " + pulsesEnabled + " actif(s) (attendu 0), cône résolu sur " + cones + ", 128 BPM sur " + bpmOk + ", décalages " + string.Join("/", phases) + " temps");
+                if (!pulseOk) problems++;
+                bool notesOk = emitters == 4 && playing == 0 && maxTotal <= MaestroGreybox.NotesParticlesBudget;
+                sb.AppendLine((notesOk ? "NotesParticles OK : " : "PROBLEME NotesParticles : ") + emitters + " émetteurs (attendu 4), " + playing + " en lecture (attendu 0), plafond cumulé " + maxTotal + " particules (attendu ≤ " + MaestroGreybox.NotesParticlesBudget + ")");
+                if (!notesOk) problems++;
+            }
+            GameObject sl = Find(roots, "StageLights");
+            StageLightSweep sweep = sl != null ? sl.GetComponent<StageLightSweep>() : null;
+            bool sweepOk = sweep != null && !sweep.enabled;
+            sb.AppendLine((sweepOk ? "StageLightSweep OK : " : "PROBLEME StageLightSweep : ") + (sweep != null ? "présent, actif=" + sweep.enabled + ", ±" + sweep.sweepDegrees + "° à " + sweep.sweepHz + " Hz, couleurs toutes les " + sweep.colorPeriod + " s" : "absent") + " (attendu présent et désactivé)");
+            if (!sweepOk) problems++;
+            Transform neons = env != null ? env.transform.Find("CastleShell/Neons") : null;
+            int neonCount = 0, neonActive = 0, neonMat = 0;
+            if (neons != null)
+                foreach (Transform c in neons)
+                {
+                    neonCount++;
+                    if (c.gameObject.activeSelf) neonActive++;
+                    Renderer r = c.GetComponent<Renderer>();
+                    if (r != null && r.sharedMaterial != null && r.sharedMaterial.name.StartsWith("M_Neon")) neonMat++;
+                }
+            EnvironmentMood mood = env != null ? env.GetComponent<EnvironmentMood>() : null;
+            int moodNeons = mood != null && mood.neons != null ? mood.neons.Length : 0;
+            bool neonOk = neons != null && neonCount == MaestroGreybox.NeonCount && neonActive == 0 && neonMat == neonCount && moodNeons == neonCount;
+            sb.AppendLine((neonOk ? "Néons OK : " : "PROBLEME néons : ") + neonCount + " bandes (attendu " + MaestroGreybox.NeonCount + " : 2 au mur du fond + 2 tours × 3 anneaux × " + MaestroGreybox.NeonRingSegments + "), " + neonActive + " active(s) (attendu 0), " + neonMat + " en M_Neon*, " + moodNeons + " référencées par EnvironmentMood");
+            if (!neonOk) problems++;
+            GameObject vfx = Find(roots, "VFX");
+            Transform cd = vfx != null ? vfx.transform.Find("CountdownPanel") : null;
+            Transform fl = vfx != null ? vfx.transform.Find("Flash") : null;
+            Light flash = fl != null ? fl.GetComponent<Light>() : null;
+            TMPro.TextMeshProUGUI digit = cd != null ? cd.GetComponentInChildren<TMPro.TextMeshProUGUI>(true) : null;
+            bool cdOk = cd != null && !cd.gameObject.activeSelf && digit != null && flash != null && !flash.enabled && flash.intensity < 1e-3f && flash.type == LightType.Directional;
+            sb.AppendLine((cdOk ? "Compte à rebours OK : " : "PROBLEME compte à rebours : ") + "CountdownPanel " + (cd != null ? "caché=" + !cd.gameObject.activeSelf + ", chiffre TMP=" + (digit != null) + (digit != null ? " (taille " + digit.fontSize.ToString("F0") + ", contour=" + (digit.fontSharedMaterial != null && digit.fontSharedMaterial.IsKeywordEnabled("OUTLINE_ON")) + ")" : "") : "absent") + ", Flash " + (flash != null ? flash.type + " intensité " + flash.intensity + " actif=" + flash.enabled : "absent") + " (attendu caché, Directional à 0 désactivée)");
+            if (!cdOk) problems++;
+            return problems;
+        }
+
+        // ---------------------------------------------------------------- v12 : API des devs (MaestroOrchestraApi)
+
+        public const string ApiPath = "Assets/_OrchestraRave/Scripts/Environment/MaestroOrchestraApi.cs";
+        public const string BridgePath = "Assets/_OrchestraRave/Scripts/Environment/Examples/RaveGestureBridge.cs";
+        public const string ApiDocPath = "Docs/API-DA.md";
+        public const string ApiTypeName = "Maestro.Environment.MaestroOrchestraApi";
+
+        /// <summary>Méthodes publiques statiques attendues : nom puis types des paramètres.</summary>
+        public static readonly object[][] ApiMethods =
+        {
+            new object[] { "Diagnose" },
+            new object[] { "StartRaveSequence" },
+            new object[] { "AbortRaveSequence" },
+            new object[] { "DropSpeakers" },
+            new object[] { "TransformToRave" },
+            new object[] { "ResetToOpera" },
+            new object[] { "SetParty", typeof(bool) },
+            new object[] { "SetLasers", typeof(bool) },
+            new object[] { "SetStageLights", typeof(bool) },
+            new object[] { "SetPoursuites", typeof(bool) },
+            new object[] { "MusiciansPlay", typeof(string) },
+            new object[] { "MusiciansStop", typeof(string) },
+            new object[] { "MusiciansHeadbang", typeof(string) },
+            new object[] { "HighlightSection", typeof(string), typeof(bool) },
+            new object[] { "ClearHighlights" },
+            new object[] { "Beat" },
+        };
+
+        /// <summary>Propriétés publiques statiques attendues (lecture seule) et leur type.</summary>
+        public static readonly object[][] ApiProperties =
+        {
+            new object[] { "IsReady", typeof(bool) },
+            new object[] { "IsRaveSequenceRunning", typeof(bool) },
+            new object[] { "RavePhase", typeof(string) },
+            new object[] { "Sections", typeof(string[]) },
+        };
+
+        public static Type FindLoadedType(string fullName)
+        {
+            foreach (System.Reflection.Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type t = a.GetType(fullName, false);
+                if (t != null) return t;
+            }
+            return null;
+        }
+
+        /// <summary>Fichiers présents ; classe statique compilée exposant toutes les méthodes, propriétés et l'event (réflexion) ; exemple compilé et absent
+        /// de la scène et des prefabs ; doc citant chaque membre ; panneau de debug branché sur l'API ; IsReady vrai en mode édition après Diagnose().</summary>
+        static int CheckOrchestraApi(StringBuilder sb)
+        {
+            int problems = 0;
+            sb.AppendLine("--- API des devs (v12 : MaestroOrchestraApi) ---");
+            foreach (string path in new[] { ApiPath, BridgePath, ApiDocPath })
+            {
+                bool exists = File.Exists(Path.Combine(MaestroRunner.ProjectRoot, path));
+                sb.AppendLine((exists ? "Fichier OK : " : "PROBLEME fichier absent : ") + path);
+                if (!exists) problems++;
+            }
+
+            const System.Reflection.BindingFlags PS = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static;
+            Type api = FindLoadedType(ApiTypeName);
+            var memberNames = new List<string>();
+            if (api == null) { sb.AppendLine("PROBLEME: type " + ApiTypeName + " absent des assemblies compilées"); problems++; }
+            else
+            {
+                bool isStatic = api.IsAbstract && api.IsSealed && api.IsClass;
+                var missing = new List<string>();
+                foreach (object[] m in ApiMethods)
+                {
+                    var types = new Type[m.Length - 1];
+                    for (int i = 1; i < m.Length; i++) types[i - 1] = (Type)m[i];
+                    System.Reflection.MethodInfo mi = api.GetMethod((string)m[0], PS, null, types, null);
+                    bool ok = mi != null;
+                    if (ok && types.Length == 1 && types[0] == typeof(string))
+                    {
+                        System.Reflection.ParameterInfo p = mi.GetParameters()[0];
+                        ok = p.IsOptional && p.DefaultValue == null; // section = null
+                    }
+                    if (ok) memberNames.Add((string)m[0]); else missing.Add((string)m[0] + "(" + string.Join(", ", Array.ConvertAll(types, t => t.Name)) + ")");
+                }
+                foreach (object[] p in ApiProperties)
+                {
+                    System.Reflection.PropertyInfo pi = api.GetProperty((string)p[0], PS);
+                    if (pi != null && pi.PropertyType == (Type)p[1] && pi.CanRead && pi.GetSetMethod() == null) memberNames.Add((string)p[0]);
+                    else missing.Add((string)p[0] + " { get; }");
+                }
+                System.Reflection.EventInfo ev = api.GetEvent("OnRavePhaseChanged", PS);
+                if (ev != null && ev.EventHandlerType == typeof(Action<string>)) memberNames.Add("OnRavePhaseChanged");
+                else missing.Add("event Action<string> OnRavePhaseChanged");
+                int publicMethods = 0;
+                foreach (System.Reflection.MethodInfo mi in api.GetMethods(PS)) if (!mi.IsSpecialName) publicMethods++;
+                bool ok2 = isStatic && missing.Count == 0;
+                sb.AppendLine((ok2 ? "MaestroOrchestraApi OK : " : "PROBLEME MaestroOrchestraApi : ") + "classe " + (isStatic ? "statique" : "NON statique") + ", "
+                    + memberNames.Count + "/" + (ApiMethods.Length + ApiProperties.Length + 1) + " membres trouvés par réflexion (" + publicMethods + " méthodes publiques, "
+                    + ApiProperties.Length + " propriétés, 1 event)" + (missing.Count > 0 ? ", manquants : " + string.Join(", ", missing) : ""));
+                if (!ok2) problems++;
+
+                // En-tête du fichier : commentaire de dix lignes maximum.
+                string apiFile = Path.Combine(MaestroRunner.ProjectRoot, ApiPath);
+                if (File.Exists(apiFile))
+                {
+                    int header = 0;
+                    foreach (string line in File.ReadAllLines(apiFile)) { if (line.TrimStart().StartsWith("//")) header++; else break; }
+                    bool headerOk = header >= 1 && header <= 10;
+                    sb.AppendLine((headerOk ? "En-tête OK : " : "PROBLEME en-tête : ") + header + " ligne(s) de commentaire en tête de MaestroOrchestraApi.cs (attendu 1 à 10)");
+                    if (!headerOk) problems++;
+                }
+
+                // Mode édition : résolution par nom de racine dans Art_Sandbox.
+                try
+                {
+                    string diag = (string)api.GetMethod("Diagnose", PS).Invoke(null, null);
+                    bool ready = (bool)api.GetProperty("IsReady", PS).GetValue(null, null);
+                    sb.AppendLine((ready ? "IsReady OK : " : "PROBLEME IsReady : ") + "IsReady = " + ready + " en mode édition après Diagnose()");
+                    sb.AppendLine(diag);
+                    if (!ready) problems++;
+                }
+                catch (Exception e) { sb.AppendLine("PROBLEME: exception pendant Diagnose() / IsReady : " + (e.InnerException ?? e).Message); problems++; }
+            }
+
+            // Exemple RaveGestureBridge : compilé, MonoBehaviour avec un champ public bool gestureDetected, posé nulle part.
+            Type bridge = FindLoadedType("RaveGestureBridge");
+            if (bridge == null) { sb.AppendLine("PROBLEME: type RaveGestureBridge absent des assemblies compilées"); problems++; }
+            else
+            {
+                System.Reflection.FieldInfo f = bridge.GetField("gestureDetected", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                int inScene = UnityEngine.Object.FindObjectsByType(bridge, FindObjectsInactive.Include, FindObjectsSortMode.None).Length;
+                string guid = AssetDatabase.AssetPathToGUID(BridgePath);
+                int inAssets = 0;
+                if (!string.IsNullOrEmpty(guid))
+                {
+                    var files = new List<string>(Directory.GetFiles(Path.Combine(MaestroRunner.ProjectRoot, MaestroGreybox.PrefabDir), "*.prefab", SearchOption.AllDirectories));
+                    files.Add(Path.Combine(MaestroRunner.ProjectRoot, MaestroGreybox.ScenePath));
+                    foreach (string file in files) if (File.ReadAllText(file).Contains(guid)) inAssets++;
+                }
+                bool ok = typeof(MonoBehaviour).IsAssignableFrom(bridge) && f != null && f.FieldType == typeof(bool) && inScene == 0 && inAssets == 0;
+                sb.AppendLine((ok ? "RaveGestureBridge OK : " : "PROBLEME RaveGestureBridge : ") + "MonoBehaviour=" + typeof(MonoBehaviour).IsAssignableFrom(bridge) + ", champ public bool gestureDetected=" + (f != null && f.FieldType == typeof(bool)) + ", instances dans la scène " + inScene + ", références dans la scène / les prefabs " + inAssets + " (attendu 0 et 0)");
+                if (!ok) problems++;
+            }
+
+            // Doc : chaque membre cité sous la forme MaestroOrchestraApi.<Nom>, triggers bas niveau et touches du panneau.
+            string docFile = Path.Combine(MaestroRunner.ProjectRoot, ApiDocPath);
+            if (File.Exists(docFile))
+            {
+                string doc = File.ReadAllText(docFile);
+                var undocumented = new List<string>();
+                var all = new List<string>();
+                foreach (object[] m in ApiMethods) all.Add((string)m[0]);
+                foreach (object[] p in ApiProperties) all.Add((string)p[0]);
+                all.Add("OnRavePhaseChanged");
+                int documented = 0;
+                foreach (string n in all) { if (doc.Contains("MaestroOrchestraApi." + n)) documented++; else undocumented.Add(n); }
+                foreach (string t in new[] { "`Drop`", "`Rave`", "`Reset`", "`Play`", "`Stop`", "`Headbang`", "F1", "F2", "MainScene" }) if (!doc.Contains(t)) undocumented.Add(t);
+                int words = doc.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;
+                bool ok = undocumented.Count == 0 && words <= 1400;
+                sb.AppendLine((ok ? "API-DA.md OK : " : "PROBLEME API-DA.md : ") + documented + "/" + all.Count + " membres cités avec un appel MaestroOrchestraApi.<Nom>, " + words + " mots (≤ 1400, deux pages)" + (undocumented.Count > 0 ? ", absents : " + string.Join(", ", undocumented) : ""));
+                if (!ok) problems++;
+            }
+
+            // Panneau de debug : boutons Séquence rave / Abort et diagnostic de démarrage passent par l'API.
+            string panelFile = Path.Combine(MaestroRunner.ProjectRoot, "Assets/_OrchestraRave/Scripts/Core/MaestroArtDebugPanel.cs");
+            if (File.Exists(panelFile))
+            {
+                string src = File.ReadAllText(panelFile);
+                bool ok = src.Contains("MaestroOrchestraApi.StartRaveSequence()") && src.Contains("MaestroOrchestraApi.AbortRaveSequence()") && src.Contains("Debug.Log(MaestroOrchestraApi.Diagnose())")
+                    && !src.Contains("_sequence.StartSequence()") && !src.Contains("_sequence.AbortSequence()");
+                sb.AppendLine((ok ? "Panneau de debug OK : " : "PROBLEME panneau de debug : ") + "Séquence rave et Abort via MaestroOrchestraApi, Diagnose() loggé au démarrage");
+                if (!ok) problems++;
+            }
+            return problems;
+        }
+
         // ---------------------------------------------------------------- v9 : transitions de l'EnvironmentController
 
         /// <summary>Any State → Rave (Rave, Level < ~0.001) et Any State → ToOpera (Reset, Level > ~0.999), sans exit time, durée 0, sans transition vers soi ;
@@ -1233,10 +1503,11 @@ namespace Maestro.EditorTools
         }
 
         /// <summary>Estimation du rendu depuis le podium (mode opéra) : renderers actifs dont les bornes coupent le frustum, triangles, batches avec instancing des fauteuils.</summary>
-        static void EstimateRendering(StringBuilder sb)
+        static void EstimateRendering(StringBuilder sb, string mode, int extraTris, int extraBatches, string extraNote)
         {
             Vector3 eye = new Vector3(0f, 1.6f, 0f);
-            sb.AppendLine("--- Estimation de rendu depuis (0, 1.6, 0) regard +Z, mode opéra (objectifs Quest 3 : < 350 000 triangles, < 150 batches) ---");
+            sb.AppendLine("--- Estimation de rendu depuis (0, 1.6, 0) regard +Z, " + mode + " (objectifs Quest 3 : < 350 000 triangles, < 150 batches) ---");
+            if (!string.IsNullOrEmpty(extraNote)) sb.AppendLine("  " + extraNote);
             Renderer[] all = UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
             foreach (var view in new[] { new { fov = 65f, aspect = 16f / 9f, label = "FOV 65° 16:9" }, new { fov = 110f, aspect = 1f, label = "FOV 110° 1:1 (ordre de grandeur casque)" } })
             {
@@ -1244,7 +1515,7 @@ namespace Maestro.EditorTools
                 Plane[] planes = FrustumPlanes(eye, Quaternion.identity, view.fov, view.aspect, out cam);
                 try
                 {
-                    long tris = 0;
+                    long tris = extraTris;
                     int visible = 0, seats = 0, draws = 0;
                     foreach (Renderer r in all)
                     {
@@ -1255,8 +1526,9 @@ namespace Maestro.EditorTools
                         if (r.name.StartsWith("Seat.")) seats++;
                         else draws += Mathf.Max(1, r.sharedMaterials.Length);
                     }
-                    int batches = draws + (seats > 0 ? Mathf.CeilToInt(seats / 1023f) : 0);
-                    sb.AppendLine("  " + view.label + " : " + visible + " renderers dans le frustum (dont " + seats + " fauteuils instanciés), " + tris.ToString("N0") + " triangles, ≈ " + batches + " batches (" + draws + " sous-meshes + " + (seats > 0 ? Mathf.CeilToInt(seats / 1023f) : 0) + " lot(s) de fauteuils)" + (tris < 350000 && batches < 150 ? " → objectifs tenus" : " → OBJECTIF DÉPASSÉ"));
+                    int seatBatches = seats > 0 ? Mathf.CeilToInt(seats / 1023f) : 0;
+                    int batches = draws + seatBatches + extraBatches;
+                    sb.AppendLine("  " + view.label + " : " + visible + " renderers dans le frustum (dont " + seats + " fauteuils instanciés), " + tris.ToString("N0") + " triangles, ≈ " + batches + " batches (" + draws + " sous-meshes + " + seatBatches + " lot(s) de fauteuils" + (extraBatches > 0 ? " + " + extraBatches + " hors maillages" : "") + ") → " + (tris > 350000 || batches > 150 ? "OBJECTIF DÉPASSÉ" : "dans les objectifs"));
                 }
                 finally { UnityEngine.Object.DestroyImmediate(cam.gameObject); }
             }

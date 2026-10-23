@@ -53,8 +53,8 @@ namespace Maestro.EditorTools
         public const string SkyboxMaterialName = "M_NightSky";
         public static readonly string[] AnchorNames = { "Anchor_Strings", "Anchor_Vent", "Anchor_Brass", "Anchor_Percution", "Anchor_Speakers" };
         public static readonly string[] EnvironmentGroups = { "Stage", "OperaShell", "CastleShell", "PostProcess" };
-        public static readonly string[] DebugButtons = { "Rave", "Reset", "Drop caissons", "Musiciens : Play", "Musiciens : Stop", "Musiciens : Headbang", "Spots on/off", "Lasers on/off", "Poursuites on/off", "Highlight test", "Fermer" };
-        public static readonly string[] DebugButtonMethods = { "OnRave", "OnReset", "OnDrop", "OnMusiciansPlay", "OnMusiciansStop", "OnMusiciansHeadbang", "OnToggleSpots", "OnToggleLasers", "OnTogglePoursuites", "OnHighlightTest", "OnClose" };
+        public static readonly string[] DebugButtons = { "Rave", "Reset", "Drop caissons", "Musiciens : Play", "Musiciens : Stop", "Musiciens : Headbang", "Spots on/off", "Lasers on/off", "Poursuites on/off", "Highlight test", "Séquence rave", "Abort", "Fermer" };
+        public static readonly string[] DebugButtonMethods = { "OnRave", "OnReset", "OnDrop", "OnMusiciansPlay", "OnMusiciansStop", "OnMusiciansHeadbang", "OnToggleSpots", "OnToggleLasers", "OnTogglePoursuites", "OnHighlightTest", "OnRaveSequence", "OnAbortSequence", "OnClose" };
         public const float DebugButtonHeightPx = 80f, DebugButtonGapPx = 4f, DebugPanelWidthPx = 600f, DebugPanelTitlePx = 30f;
         /// <summary>Rangée du bouton (deux par rangée, le dernier « Fermer » seul sur la dernière).</summary>
         public static int DebugButtonRow(int index) { return index == DebugButtons.Length - 1 ? Mathf.CeilToInt((DebugButtons.Length - 1) / 2f) : index / 2; }
@@ -277,6 +277,31 @@ namespace Maestro.EditorTools
         public const float HighlightPulseHz = 1f;
         public const float HighlightFade = 0.15f;
 
+        // v11 : séquence rave (néons, particules de notes, compte à rebours)
+        public const string NeonMagentaName = "M_NeonMagenta";
+        public const string NeonCyanName = "M_NeonCyan";
+        public const string NotesMaterialName = "M_Notes";
+        public const string CountdownFontMaterialName = "M_CountdownFont";
+        public const float NeonEmissionEV = 5f;
+        public static readonly Color NeonMagenta = new Color(1f, 0.16f, 0.78f);
+        public static readonly Color NeonCyan = new Color(0f, 0.9f, 1f);
+        public const float NeonThickness = 0.08f;
+        public const float NeonWallLength = 50f;
+        public static readonly float[] NeonWallY = { 18f, 19f };
+        public const float NeonWallZ = 25.45f;                       // devant la face avant du mur du fond (z = 25.5) et des créneaux
+        public static readonly float[] NeonRingY = { 10f, 16f, 22f };
+        public const int NeonRingSegments = 12;
+        public const float NeonRingRadius = 3.6f;                    // fût des tours : rayon 3.5
+        public static int NeonCount { get { return NeonWallY.Length + TowerPos.Length * NeonRingY.Length * NeonRingSegments; } }
+        public const string TexDir = "Assets/_OrchestraRave/Art/Textures";
+        public const string NotesTextureName = "T_Notes";
+        public const int NotesParticlesBudget = 160;                  // particules vivantes au total (4 émetteurs × 40)
+        public const int NotesParticlesMaxPerEmitter = 40;
+        public static readonly Vector3 NotesEmitterLocalPos = new Vector3(0f, -0.35f, -1.45f);   // 20 cm devant le cône (Model/Cone à (0, 1.15, -1.25) sous Model à y = -1.5)
+        public static readonly Vector3 NotesEmitterLocalEuler = new Vector3(-25f, 180f, 0f);   // +Z de l'émetteur = façade (-Z du caisson) relevée de 25°
+        public static readonly Color[] NoteColors = { new Color(1f, 0.16f, 0.78f), new Color(0f, 0.9f, 1f), new Color(1f, 0.9f, 0.2f), new Color(0.3f, 1f, 0.4f), new Color(1f, 0.55f, 0.15f) };
+        public const float CountdownDigitHeight = 0.6f;
+
         // v8 : matériaux des capsules (couleurs v1 × 1.15 plafonnées, Smoothness 0.35)
         public const float MusicianSmoothness = 0.35f;
         public const float MusicianColorGain = 1.15f;
@@ -294,6 +319,7 @@ namespace Maestro.EditorTools
             public Material stone, stoneDark, wood, metal, chrome, torch, brazier, cyan, magenta, moon, red, blue;
             public Material strings, vent, brass, percu, skin, velvet, gold, marble, plaster, chandelier, sky;
             public Cubemap flatRefl;
+            public Material neonMagenta, neonCyan, notes, countdownFont;
         }
 
         static StringBuilder _sb;
@@ -339,10 +365,11 @@ namespace Maestro.EditorTools
                     Material bodyMat = section == "Strings" ? m.strings : section == "Vent" ? m.vent : section == "Brass" ? m.brass : m.percu;
                     BuildSection(section, SectionLayout[section], bodyMat, m.skin, m.wood, m.metal, musicianCtrl, env.transform.Find("Anchor_" + section));
                 }
-                BuildSpeakers(m.metal, m.magenta, speakersCtrl, env.transform.Find("Anchor_Speakers"));
+                BuildSpeakers(m.metal, m.magenta, m.notes, speakersCtrl, env.transform.Find("Anchor_Speakers"));
                 BuildStageLights(m.metal);
                 BuildLasers(m.cyan);
-                BuildVfx();
+                BuildVfx(m.countdownFont);
+                WireRaveSequence(env);
                 BuildDebugPanel();
                 EnsureEventSystem(scene);
                 EnsureRigPostProcessing(scene);
@@ -350,7 +377,7 @@ namespace Maestro.EditorTools
                 Dress();
                 SetupSceneLighting(scene, m.sky, m.flatRefl, dir);
                 SaveAll(sb);
-                Log("Greybox v9 terminé.");
+                Log("Greybox v11 terminé.");
             }
             finally
             {
@@ -490,6 +517,13 @@ namespace Maestro.EditorTools
             m.skin       = Mat("M_Skin",            new Color(0.90f, 0.78f, 0.62f), 0f, 0.4f);
             // v10 : mot-clé _EMISSION activé (émission noire) sur les capsules et la peau, pour la surbrillance par MaterialPropertyBlock
             foreach (Material em in new[] { m.strings, m.vent, m.brass, m.percu, m.skin }) EnableEmissionKeyword(em);
+            // v11 : néons (émissifs), particules de notes (Particles/Unlit additif + T_Notes), police du compte à rebours (contour)
+            m.neonMagenta = Mat(NeonMagentaName, NeonMagenta, 0f, 0.5f, NeonMagenta, NeonEmissionEV);
+            m.neonCyan    = Mat(NeonCyanName, NeonCyan, 0f, 0.5f, NeonCyan, NeonEmissionEV);
+            m.neonMagenta.enableInstancing = true;
+            m.neonCyan.enableInstancing = true;
+            m.notes       = NotesMaterial();
+            m.countdownFont = CountdownFontMaterial();
             // v3 : opéra
             m.velvet     = Mat("M_Velvet",          new Color(0.35f, 0.03f, 0.06f), 0f, 0.2f);
             m.gold       = Mat("M_Gold",            new Color(1.00f, 0.78f, 0.35f), 0.9f, 0.8f, new Color(1.00f, 0.78f, 0.35f), 0.4f);
@@ -532,6 +566,240 @@ namespace Maestro.EditorTools
             if (isNew) AssetDatabase.CreateAsset(mat, path);
             else EditorUtility.SetDirty(mat);
             return mat;
+        }
+
+        /// <summary>v11 : matériau des particules de notes : URP Particles/Unlit, additif (SrcAlpha / One), texture T_Notes régénérée à chaque build.</summary>
+        static Material NotesMaterial()
+        {
+            EnsureFolder(TexDir);
+            Texture2D tex = NotesTexture();
+            string path = MatDir + "/" + NotesMaterialName + ".mat";
+            Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (shader == null) throw new Exception("Shader 'Universal Render Pipeline/Particles/Unlit' introuvable.");
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            bool isNew = mat == null;
+            if (isNew) mat = new Material(shader);
+            else if (mat.shader != shader) mat.shader = shader;
+            mat.SetTexture("_BaseMap", tex);
+            mat.SetColor("_BaseColor", Color.white);
+            mat.SetFloat("_Surface", 1f);
+            mat.SetFloat("_Blend", 2f);
+            mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            mat.SetFloat("_DstBlend", (float)BlendMode.One);
+            mat.SetFloat("_ZWrite", 0f);
+            mat.SetFloat("_Cull", (float)CullMode.Off);
+            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.DisableKeyword("_ALPHAMODULATE_ON");
+            mat.SetOverrideTag("RenderType", "Transparent");
+            mat.renderQueue = (int)RenderQueue.Transparent;
+            if (isNew) AssetDatabase.CreateAsset(mat, path);
+            else EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>v11 : texture 256² RGBA (fond transparent), quatre symboles blancs en planche 2 × 2 : croche, double croche, noire, clé de sol simplifiée.</summary>
+        static Texture2D NotesTexture()
+        {
+            string path = TexDir + "/" + NotesTextureName + ".png";
+            const int size = 256;
+            var px = new Color32[size * size];
+            DrawNote(px, size, 0, 0, 1);  // croche (haut gauche)
+            DrawNote(px, size, 1, 0, 2);  // double croche (haut droite)
+            DrawNote(px, size, 0, 1, 0);  // noire (bas gauche)
+            DrawClef(px, size, 1, 1);     // clé de sol (bas droite)
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.SetPixels32(px);
+            tex.Apply();
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            var imp = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (imp != null && (!imp.alphaIsTransparency || imp.wrapMode != TextureWrapMode.Clamp || !imp.mipmapEnabled || imp.textureType != TextureImporterType.Default))
+            {
+                imp.textureType = TextureImporterType.Default;
+                imp.alphaIsTransparency = true;
+                imp.mipmapEnabled = true;
+                imp.wrapMode = TextureWrapMode.Clamp;
+                imp.sRGBTexture = true;
+                imp.SaveAndReimport();
+            }
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        // Rasterisation dans une cellule 128 × 128 (x vers la droite, y vers le haut) ; row 0 = haut de l'image (ordre des tuiles de la planche).
+        static void Plot(Color32[] px, int size, int cx0, int cy0, int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= 128 || y >= 128) return;
+            int gx = cx0 + x, gy = cy0 + y;
+            if (gx < 0 || gy < 0 || gx >= size || gy >= size) return;
+            px[gy * size + gx] = new Color32(255, 255, 255, 255);
+        }
+
+        static void FillEllipse(Color32[] px, int size, int cx0, int cy0, float cx, float cy, float rx, float ry, float angleDeg)
+        {
+            float c = Mathf.Cos(angleDeg * Mathf.Deg2Rad), s = Mathf.Sin(angleDeg * Mathf.Deg2Rad);
+            for (int y = 0; y < 128; y++)
+                for (int x = 0; x < 128; x++)
+                {
+                    float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
+                    float u = (dx * c + dy * s) / rx, v = (-dx * s + dy * c) / ry;
+                    if (u * u + v * v <= 1f) Plot(px, size, cx0, cy0, x, y);
+                }
+        }
+
+        static void ThickLine(Color32[] px, int size, int cx0, int cy0, Vector2 a, Vector2 b, float width)
+        {
+            float hw = width * 0.5f;
+            int minX = Mathf.Max(0, (int)(Mathf.Min(a.x, b.x) - hw - 1f)), maxX = Mathf.Min(127, (int)(Mathf.Max(a.x, b.x) + hw + 1f));
+            int minY = Mathf.Max(0, (int)(Mathf.Min(a.y, b.y) - hw - 1f)), maxY = Mathf.Min(127, (int)(Mathf.Max(a.y, b.y) + hw + 1f));
+            Vector2 ab = b - a;
+            float len2 = Mathf.Max(1e-4f, ab.sqrMagnitude);
+            for (int y = minY; y <= maxY; y++)
+                for (int x = minX; x <= maxX; x++)
+                {
+                    Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
+                    float k = Mathf.Clamp01(Vector2.Dot(p - a, ab) / len2);
+                    if ((p - (a + ab * k)).magnitude <= hw) Plot(px, size, cx0, cy0, x, y);
+                }
+        }
+
+        static void Polyline(Color32[] px, int size, int cx0, int cy0, Vector2[] pts, float width)
+        {
+            for (int i = 1; i < pts.Length; i++) ThickLine(px, size, cx0, cy0, pts[i - 1], pts[i], width);
+        }
+
+        /// <summary>flags : 0 noire, 1 croche, 2 double croche.</summary>
+        static void DrawNote(Color32[] px, int size, int col, int row, int flags)
+        {
+            int cx0 = col * 128, cy0 = (1 - row) * 128;
+            FillEllipse(px, size, cx0, cy0, 48f, 30f, 21f, 14f, 20f);
+            ThickLine(px, size, cx0, cy0, new Vector2(66f, 34f), new Vector2(66f, 112f), 7f);
+            for (int f = 0; f < flags; f++)
+            {
+                float y0 = 112f - f * 16f;
+                Polyline(px, size, cx0, cy0, new[] { new Vector2(66f, y0), new Vector2(82f, y0 - 12f), new Vector2(92f, y0 - 30f), new Vector2(88f, y0 - 48f) }, 8f);
+            }
+        }
+
+        static void DrawClef(Color32[] px, int size, int col, int row)
+        {
+            int cx0 = col * 128, cy0 = (1 - row) * 128;
+            ThickLine(px, size, cx0, cy0, new Vector2(60f, 10f), new Vector2(66f, 122f), 6f);
+            var pts = new List<Vector2>();
+            for (float a = 0f; a <= 2.6f * Mathf.PI; a += 0.15f)
+            {
+                float r = 30f - a * 3.2f;
+                pts.Add(new Vector2(60f + r * Mathf.Cos(a + Mathf.PI), 56f + r * Mathf.Sin(a + Mathf.PI)));
+            }
+            Polyline(px, size, cx0, cy0, pts.ToArray(), 6f);
+            Polyline(px, size, cx0, cy0, new[] { new Vector2(66f, 122f), new Vector2(84f, 108f), new Vector2(70f, 92f), new Vector2(56f, 100f) }, 6f);
+            FillEllipse(px, size, cx0, cy0, 54f, 14f, 8f, 8f, 0f);
+        }
+
+        /// <summary>v11 : copie du matériau de la police TMP par défaut avec contour noir (OUTLINE_ON), pour le compte à rebours.</summary>
+        static Material CountdownFontMaterial()
+        {
+            TMP_FontAsset font = TMP_Settings.defaultFontAsset;
+            if (font == null || font.material == null) throw new Exception("Police TMP par défaut introuvable.");
+            string path = MatDir + "/" + CountdownFontMaterialName + ".mat";
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(font.material);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            else
+            {
+                mat.shader = font.material.shader;
+                mat.CopyPropertiesFromMaterial(font.material);
+            }
+            mat.EnableKeyword("OUTLINE_ON");
+            mat.SetFloat("_OutlineWidth", 0.25f);
+            mat.SetColor("_OutlineColor", Color.black);
+            mat.SetColor("_FaceColor", Color.white);
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>v11 : émetteur de notes sous un Speaker_N (cône d'angle 10° de rayon 0,6 m devant le cône du caisson), arrêté ; démarré par RaveSequence en Party.</summary>
+        static void BuildNotesParticles(Transform parent, Material mat)
+        {
+            GameObject go = Empty("NotesParticles", parent, NotesEmitterLocalPos, NotesEmitterLocalEuler);
+            ParticleSystem ps = go.AddComponent<ParticleSystem>();
+            var main = ps.main;
+            main.loop = true;
+            main.playOnAwake = false;
+            main.duration = 5f;
+            main.startLifetime = 3f;
+            main.startSpeed = new ParticleSystem.MinMaxCurve(1.5f, 2.5f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.25f, 0.4f);
+            main.startRotation = new ParticleSystem.MinMaxCurve(0f, 2f * Mathf.PI);
+            main.gravityModifier = -0.05f;
+            main.maxParticles = NotesParticlesMaxPerEmitter;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            var colorKeys = new GradientColorKey[NoteColors.Length];
+            for (int i = 0; i < NoteColors.Length; i++) colorKeys[i] = new GradientColorKey(NoteColors[i], (i + 1f) / NoteColors.Length);
+            var g = new Gradient();
+            g.mode = GradientMode.Fixed;
+            g.SetKeys(colorKeys, new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 1f) });
+            var startColor = new ParticleSystem.MinMaxGradient(g);
+            startColor.mode = ParticleSystemGradientMode.RandomColor;
+            main.startColor = startColor;
+            var em = ps.emission;
+            em.enabled = true;
+            em.rateOverTime = new ParticleSystem.MinMaxCurve(6f, 10f);
+            var sh = ps.shape;
+            sh.enabled = true;
+            sh.shapeType = ParticleSystemShapeType.Cone;
+            sh.angle = 10f;
+            sh.radius = 0.6f;
+            sh.radiusThickness = 1f;
+            var col = ps.colorOverLifetime;
+            col.enabled = true;
+            var fade = new Gradient();
+            fade.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) }, new[] { new GradientAlphaKey(1f, 0f), new GradientAlphaKey(1f, 0.6f), new GradientAlphaKey(0f, 1f) });
+            col.color = new ParticleSystem.MinMaxGradient(fade);
+            var rot = ps.rotationOverLifetime;
+            rot.enabled = true;
+            rot.z = new ParticleSystem.MinMaxCurve(20f * Mathf.Deg2Rad, 45f * Mathf.Deg2Rad);
+            var tsa = ps.textureSheetAnimation;
+            tsa.enabled = true;
+            tsa.mode = ParticleSystemAnimationMode.Grid;
+            tsa.numTilesX = 2;
+            tsa.numTilesY = 2;
+            tsa.animation = ParticleSystemAnimationType.SingleRow;
+            tsa.rowMode = ParticleSystemAnimationRowMode.Random;
+            tsa.startFrame = new ParticleSystem.MinMaxCurve(0f, 2f);
+            tsa.frameOverTime = new ParticleSystem.MinMaxCurve(0f);
+            var r = go.GetComponent<ParticleSystemRenderer>();
+            r.renderMode = ParticleSystemRenderMode.Billboard;
+            r.sharedMaterial = mat;
+            r.shadowCastingMode = ShadowCastingMode.Off;
+            r.receiveShadows = false;
+            ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        }
+
+        /// <summary>v11 : références de RaveSequence vers les autres prefabs (instances de scène, posées comme overrides d'instance).</summary>
+        static void WireRaveSequence(GameObject env)
+        {
+            RaveSequence seq = env.GetComponent<RaveSequence>();
+            if (seq == null) { Log("RaveSequence absent de Environment : câblage ignoré."); return; }
+            GameObject spk = GameObject.Find("Speakers"), sl = GameObject.Find("StageLights"), lz = GameObject.Find("Lasers"), vfx = GameObject.Find("VFX");
+            seq.speakersAnimator = spk != null ? spk.GetComponent<Animator>() : null;
+            var secs = new List<GameObject>();
+            foreach (string s in SectionPrefabs) { GameObject g = GameObject.Find(s); if (g != null) secs.Add(g); }
+            seq.sections = secs.ToArray();
+            seq.stageLights = sl;
+            seq.lasers = lz;
+            seq.vfx = vfx;
+            Transform cd = vfx != null ? vfx.transform.Find("CountdownPanel") : null;
+            Transform fl = vfx != null ? vfx.transform.Find("Flash") : null;
+            seq.countdownPanel = cd != null ? cd.gameObject : null;
+            seq.countdownText = cd != null ? cd.GetComponentInChildren<TextMeshProUGUI>(true) : null;
+            seq.flashLight = fl != null ? fl.GetComponent<Light>() : null;
+            PrefabUtility.RecordPrefabInstancePropertyModifications(seq);
+            Log("RaveSequence : Environment (Animator, EnvironmentMood) + Speakers, " + secs.Count + " sections, StageLights, Lasers, VFX (CountdownPanel, Flash) ; countdown " + seq.countdownSeconds + " s + DROP " + seq.dropLabelSeconds + " s, drop " + seq.dropSeconds + " s, transform +" + seq.transformDelay + " s, timeout rave " + seq.raveTimeout + " s.");
         }
 
         /// <summary>v10 : mot-clé _EMISSION activé avec une émission noire (la surbrillance l'écrit par MaterialPropertyBlock) ; flags Realtime
@@ -1078,6 +1346,14 @@ namespace Maestro.EditorTools
             mood.nightSkybox = m.sky;
             mood.flatReflection = m.flatRefl;
             mood.levelParameter = LevelParameter;
+            // v11 : néons référencés dans l'ordre de la cascade ; RaveSequence sur la racine (références internes ici, externes dans WireRaveSequence)
+            var neonList = new List<GameObject>();
+            Transform neonGroup = castle.Find("Neons");
+            if (neonGroup != null) foreach (Transform c in neonGroup) neonList.Add(c.gameObject);
+            mood.neons = neonList.ToArray();
+            RaveSequence seq = env.AddComponent<RaveSequence>();
+            seq.environmentAnimator = a;
+            seq.mood = mood;
             mood.ambientOpera = AmbientOpera;
             mood.fogNight = FogNight;
 
@@ -1199,6 +1475,22 @@ namespace Maestro.EditorTools
             float[] bannerX = { -16f, -8f, 8f, 16f };
             for (int i = 0; i < bannerX.Length; i++)
                 Prim(PrimitiveType.Cube, "Banniere_" + (i + 1), p, new Vector3(bannerX[i], 11f, 25.4f), Vector3.zero, new Vector3(2f, 12f, 0.1f), i % 2 == 0 ? m.red : m.blue);
+
+            // v11 : néons (désactivés hors party ; EnvironmentMood les allume en cascade à party > 0.5) : 2 bandes le long des créneaux, 3 anneaux par tour
+            Transform neons = Empty("Neons", p, Vector3.zero, Vector3.zero).transform;
+            int ni = 0;
+            for (int i = 0; i < NeonWallY.Length; i++)
+                NoCollider(Prim(PrimitiveType.Cube, "Neon_Mur_" + (i + 1), neons, new Vector3(0f, NeonWallY[i], NeonWallZ), Vector3.zero, new Vector3(NeonWallLength, NeonThickness, NeonThickness), (ni++ % 2 == 0) ? m.neonMagenta : m.neonCyan)).SetActive(false);
+            float segLen = 2f * NeonRingRadius * Mathf.Sin(Mathf.PI / NeonRingSegments) * 1.03f;
+            for (int t = 0; t < TowerPos.Length; t++)
+                foreach (float y in NeonRingY)
+                    for (int k = 0; k < NeonRingSegments; k++)
+                    {
+                        float a = k * 360f / NeonRingSegments;
+                        Vector3 c = new Vector3(TowerPos[t].x + NeonRingRadius * Mathf.Cos(a * Mathf.Deg2Rad), y, TowerPos[t].z + NeonRingRadius * Mathf.Sin(a * Mathf.Deg2Rad));
+                        NoCollider(Prim(PrimitiveType.Cube, "Neon_Tour" + (t + 1) + "_" + y.ToString("F0") + "_" + (k + 1), neons, c, new Vector3(0f, -a, 0f), new Vector3(NeonThickness, NeonThickness, segLen), (ni++ % 2 == 0) ? m.neonMagenta : m.neonCyan)).SetActive(false);
+                    }
+            Log("CastleShell/Neons : " + ni + " bandes émissives désactivées (2 × " + NeonWallLength + " m à y = " + string.Join("/", Array.ConvertAll(NeonWallY, v => v.ToString("F0"))) + " le long des créneaux, " + TowerPos.Length + " tours × " + NeonRingY.Length + " anneaux × " + NeonRingSegments + " cubes au rayon " + NeonRingRadius + "), M_NeonMagenta / M_NeonCyan en alternance (émission EV " + NeonEmissionEV + ").");
 
             // Lune : échelle 0 au départ, EnvironmentMood la fait grandir à partir de rave = 0.5
             GameObject moon = NoCollider(Prim(PrimitiveType.Sphere, "Lune", p, MoonPos, Vector3.zero, Vector3.zero, m.moon));
@@ -1377,7 +1669,7 @@ namespace Maestro.EditorTools
             Log(name + " : " + layout.Length + " musiciens (x " + minX + " → " + maxX + ", z " + minZ + " → " + maxZ + "), collider de section " + bc.size.ToString("F2") + " centre " + bc.center.ToString("F2") + ", instance sur " + anchor.name);
         }
 
-        static void BuildSpeakers(Material metal, Material magenta, AnimatorController ctrl, Transform anchor)
+        static void BuildSpeakers(Material metal, Material magenta, Material notes, AnimatorController ctrl, Transform anchor)
         {
             var root = new GameObject("Speakers");
             for (int i = 0; i < SpeakerX.Length; i++)
@@ -1385,6 +1677,11 @@ namespace Maestro.EditorTools
                 GameObject s = Empty("Speaker_" + (i + 1), root.transform, new Vector3(SpeakerX[i], SpeakerRestY, 0f), Vector3.zero);
                 Prim(PrimitiveType.Cube, "Box", s.transform, Vector3.zero, Vector3.zero, new Vector3(2.5f, 3f, 2.5f), metal);
                 Prim(PrimitiveType.Cylinder, "Cone", s.transform, new Vector3(0f, 0f, -1.28f), new Vector3(90f, 0f, 0f), new Vector3(1.8f, 0.03f, 1.8f), magenta);
+                // v11 : pulsation (désactivée, activée par RaveSequence en Party ; décalage d'un quart de temps par caisson) et émetteur de notes arrêté
+                SpeakerPulse pulse = s.AddComponent<SpeakerPulse>();
+                pulse.phaseOffsetBeats = i * 0.25f;
+                pulse.enabled = false;
+                BuildNotesParticles(s.transform, notes);
             }
             Animator a = root.AddComponent<Animator>();
             a.runtimeAnimatorController = ctrl;
@@ -1417,6 +1714,9 @@ namespace Maestro.EditorTools
                 l.enabled = false;
                 Prim(PrimitiveType.Cube, "Projecteur", g.transform, Vector3.zero, Vector3.zero, Vector3.one * 0.3f, metal);
             }
+            // v11 : balayage et alternance magenta / cyan en party (désactivé, activé par RaveSequence)
+            StageLightSweep sweep = root.AddComponent<StageLightSweep>();
+            sweep.enabled = false;
             SavePrefab(root, PrefabDir + "/StageLights.prefab");
         }
 
@@ -1435,10 +1735,36 @@ namespace Maestro.EditorTools
             SavePrefab(root, PrefabDir + "/Lasers.prefab");
         }
 
-        static void BuildVfx()
+        /// <summary>v11 : VFX = CountdownPanel (canvas World Space caché, chiffre TMP de 0,6 m avec contour) + Flash (Directional à 0, désactivée).</summary>
+        static void BuildVfx(Material countdownFont)
         {
             var root = new GameObject("VFX");
+            TMP_FontAsset font = TMP_Settings.defaultFontAsset;
+            var panel = new GameObject("CountdownPanel", typeof(RectTransform));
+            panel.transform.SetParent(root.transform, false);
+            Canvas canvas = panel.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            RectTransform prt = Rect(panel);
+            prt.sizeDelta = new Vector2(3000f, 1000f);
+            prt.localScale = Vector3.one * 0.001f;
+            TextMeshProUGUI digit = UIText("Digit", panel.transform, "3", font, CountdownDigitHeight * 1000f / 0.72f);
+            Stretch(digit.rectTransform);
+            digit.textWrappingMode = TextWrappingModes.NoWrap;
+            digit.overflowMode = TextOverflowModes.Overflow;
+            digit.enableAutoSizing = false;
+            if (countdownFont != null) digit.fontSharedMaterial = countdownFont;
+            panel.SetActive(false);
+            var flashGo = new GameObject("Flash");
+            flashGo.transform.SetParent(root.transform, false);
+            flashGo.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+            Light flash = flashGo.AddComponent<Light>();
+            flash.type = LightType.Directional;
+            flash.color = Color.white;
+            flash.intensity = 0f;
+            flash.shadows = LightShadows.None;
+            flash.enabled = false;
             SavePrefab(root, PrefabDir + "/VFX.prefab");
+            Log("VFX : CountdownPanel (canvas World Space 3 × 1 m caché, chiffre TMP " + CountdownDigitHeight + " m avec contour, placé par RaveSequence à 2 m devant la tête), Flash (Directional blanche à 0, désactivée).");
         }
 
         // ------------------------------------------------------------------ DebugPanel + EventSystem
