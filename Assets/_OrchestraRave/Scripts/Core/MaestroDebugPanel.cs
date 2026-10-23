@@ -44,6 +44,8 @@ namespace Maestro.Core
         public string[] sectionNames = { "Strings", "Vent", "Brass", "Percution" };
         public string stageLightsName = "StageLights";
         public string lasersName = "Lasers";
+        [Tooltip("Groupe (sous la racine Environment) des poursuites de scène et du fill : le bouton Poursuites on/off bascule enabled sur ses Lights.")]
+        public string poursuitesName = "Poursuites";
 
         const string Tag = "[MaestroDebugPanel] ";
         static readonly List<XRHandSubsystem> s_HandSubsystems = new List<XRHandSubsystem>();
@@ -53,6 +55,7 @@ namespace Maestro.Core
         readonly List<Animator> _musicians = new List<Animator>();
         readonly List<Light> _spots = new List<Light>();
         readonly List<GameObject> _lasers = new List<GameObject>();
+        readonly List<Light> _poursuites = new List<Light>();
 
         XRHandSubsystem _hands;
         XROrigin _origin;
@@ -102,11 +105,18 @@ namespace Maestro.Core
             _musicians.Clear();
             _spots.Clear();
             _lasers.Clear();
+            _poursuites.Clear();
             GameObject[] roots = SceneManager.GetActiveScene().GetRootGameObjects();
 
             GameObject env = FindRoot(roots, environmentName);
             if (env != null) _environment = env.GetComponent<Animator>();
             if (_environment == null) Debug.LogWarning(Tag + "cible manquante : racine « " + environmentName + " » avec un Animator (triggers Rave / Reset).");
+            if (env != null)
+            {
+                foreach (Transform t in env.GetComponentsInChildren<Transform>(true))
+                    if (t.name == poursuitesName) { _poursuites.AddRange(t.GetComponentsInChildren<Light>(true)); break; }
+            }
+            if (_poursuites.Count == 0) Debug.LogWarning(Tag + "cible manquante : groupe « " + poursuitesName + " » avec des Lights sous « " + environmentName + " ».");
 
             GameObject spk = FindRoot(roots, speakersName);
             if (spk != null) _speakers = spk.GetComponent<Animator>();
@@ -158,6 +168,15 @@ namespace Maestro.Core
             bool anyOn = false;
             foreach (GameObject g in _lasers) if (g != null && g.activeSelf) { anyOn = true; break; }
             foreach (GameObject g in _lasers) if (g != null) g.SetActive(!anyOn);
+        }
+
+        /// <summary>v8 : bascule enabled sur les poursuites de scène et le fill (EnvironmentMood respecte l'état tant que l'ambiance ne change pas ; Reset les rallume).</summary>
+        public void OnTogglePoursuites()
+        {
+            if (_poursuites.Count == 0) { Debug.LogWarning(Tag + "Poursuites : aucune Light sous « " + poursuitesName + " »."); return; }
+            bool anyOn = false;
+            foreach (Light l in _poursuites) if (l != null && l.enabled) { anyOn = true; break; }
+            foreach (Light l in _poursuites) if (l != null) l.enabled = !anyOn;
         }
 
         public void OnClose() { HidePanel(); }

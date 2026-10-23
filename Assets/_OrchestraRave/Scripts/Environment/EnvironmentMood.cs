@@ -44,6 +44,7 @@ namespace Maestro.Environment
 
         Material _skyInstance;
         MaterialPropertyBlock _moonBlock;
+        bool[] _operaLightWasOn;
 
         void Awake()
         {
@@ -101,13 +102,19 @@ namespace Maestro.Environment
 
             if (operaLights != null)
             {
+                if (_operaLightWasOn == null || _operaLightWasOn.Length != operaLights.Length) _operaLightWasOn = new bool[operaLights.Length];
                 for (int i = 0; i < operaLights.Length; i++)
                 {
                     Light l = operaLights[i];
                     if (l == null) continue;
                     float b = operaLightBases != null && i < operaLightBases.Length ? operaLightBases[i] : 1f;
                     l.intensity = b * (1f - t);
-                    l.enabled = l.intensity > 0.001f;
+                    // v8 : éteinte quand l'intensité tombe à 0, rallumée seulement au retour vers l'opéra ; entre les deux, un « enabled »
+                    // basculé à la main (bouton Poursuites on/off du DebugPanel) est conservé.
+                    bool on = l.intensity > 0.001f;
+                    if (!on) l.enabled = false;
+                    else if (!_operaLightWasOn[i]) l.enabled = true;
+                    _operaLightWasOn[i] = on;
                 }
             }
 
