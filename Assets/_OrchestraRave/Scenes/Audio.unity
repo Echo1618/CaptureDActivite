@@ -12429,19 +12429,19 @@ MonoBehaviour:
   m_GlobalVolumeParameter: GlobalVolume
   m_Families:
   - family: 1
-    mixerVolumeParameter: 
+    mixerVolumeParameter: CordesVolume
     initialVolume: 1
   - family: 2
-    mixerVolumeParameter: 
+    mixerVolumeParameter: BoisVolume
     initialVolume: 1
   - family: 3
-    mixerVolumeParameter: 
+    mixerVolumeParameter: CuivresVolume
     initialVolume: 1
   - family: 4
-    mixerVolumeParameter: 
+    mixerVolumeParameter: PercussionVolume
     initialVolume: 1
   - family: 5
-    mixerVolumeParameter: 
+    mixerVolumeParameter: ElectroVolume
     initialVolume: 0
   m_Instruments:
   - instrumentId: Violon
