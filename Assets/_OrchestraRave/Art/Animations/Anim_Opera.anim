@@ -70,7 +70,7 @@ AnimationClip:
       m_Curve:
       - serializedVersion: 3
         time: 0
-        value: {x: 0, y: 8, z: 0}
+        value: {x: 0, y: 0, z: 0}
         inSlope: {x: 0, y: 0, z: 0}
         outSlope: {x: 0, y: 0, z: 0}
         tangentMode: 0
@@ -79,7 +79,7 @@ AnimationClip:
         outWeight: {x: 0, y: 0, z: 0}
       - serializedVersion: 3
         time: 0.016666668
-        value: {x: 0, y: 8, z: 0}
+        value: {x: 0, y: 0, z: 0}
         inSlope: {x: 0, y: 0, z: 0}
         outSlope: {x: 0, y: 0, z: 0}
         tangentMode: 0
@@ -89,7 +89,7 @@ AnimationClip:
       m_PreInfinity: 2
       m_PostInfinity: 2
       m_RotationOrder: 4
-    path: OperaShell/Dome
+    path: OperaShell/Model/Ceiling/Dome
   - curve:
       serializedVersion: 2
       m_Curve:
@@ -121,7 +121,7 @@ AnimationClip:
       m_Curve:
       - serializedVersion: 3
         time: 0
-        value: {x: 80, y: 55, z: 80}
+        value: {x: 1, y: 1, z: 1}
         inSlope: {x: 0, y: 0, z: 0}
         outSlope: {x: 0, y: 0, z: 0}
         tangentMode: 0
@@ -130,7 +130,7 @@ AnimationClip:
         outWeight: {x: 0, y: 0, z: 0}
       - serializedVersion: 3
         time: 0.016666668
-        value: {x: 80, y: 55, z: 80}
+        value: {x: 1, y: 1, z: 1}
         inSlope: {x: 0, y: 0, z: 0}
         outSlope: {x: 0, y: 0, z: 0}
         tangentMode: 0
@@ -140,7 +140,7 @@ AnimationClip:
       m_PreInfinity: 2
       m_PostInfinity: 2
       m_RotationOrder: 4
-    path: OperaShell/Dome
+    path: OperaShell/Model/Ceiling/Dome
   m_FloatCurves:
   - serializedVersion: 2
     curve:
@@ -199,7 +199,7 @@ AnimationClip:
       isIntCurve: 0
       isSerializeReferenceCurve: 0
     - serializedVersion: 2
-      path: 241964443
+      path: 3019559472
       attribute: 1
       script: {fileID: 0}
       typeID: 4
@@ -217,7 +217,7 @@ AnimationClip:
       isIntCurve: 0
       isSerializeReferenceCurve: 0
     - serializedVersion: 2
-      path: 241964443
+      path: 3019559472
       attribute: 3
       script: {fileID: 0}
       typeID: 4
@@ -492,7 +492,7 @@ AnimationClip:
       m_PostInfinity: 2
       m_RotationOrder: 4
     attribute: localPosition.x
-    path: OperaShell/Dome
+    path: OperaShell/Model/Ceiling/Dome
     classID: 4
     script: {fileID: 0}
     flags: 16
@@ -502,7 +502,7 @@ AnimationClip:
       m_Curve:
       - serializedVersion: 3
         time: 0
-        value: 8
+        value: 0
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -511,7 +511,7 @@ AnimationClip:
         outWeight: 0
       - serializedVersion: 3
         time: 0.016666668
-        value: 8
+        value: 0
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -522,7 +522,7 @@ AnimationClip:
       m_PostInfinity: 2
       m_RotationOrder: 4
     attribute: localPosition.y
-    path: OperaShell/Dome
+    path: OperaShell/Model/Ceiling/Dome
     classID: 4
     script: {fileID: 0}
     flags: 16
@@ -552,7 +552,7 @@ AnimationClip:
       m_PostInfinity: 2
       m_RotationOrder: 4
     attribute: localPosition.z
-    path: OperaShell/Dome
+    path: OperaShell/Model/Ceiling/Dome
     classID: 4
     script: {fileID: 0}
     flags: 16
@@ -562,7 +562,7 @@ AnimationClip:
       m_Curve:
       - serializedVersion: 3
         time: 0
-        value: 80
+        value: 1
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -571,7 +571,7 @@ AnimationClip:
         outWeight: 0
       - serializedVersion: 3
         time: 0.016666668
-        value: 80
+        value: 1
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -582,7 +582,7 @@ AnimationClip:
       m_PostInfinity: 2
       m_RotationOrder: 4
     attribute: localScale.x
-    path: OperaShell/Dome
+    path: OperaShell/Model/Ceiling/Dome
     classID: 4
     script: {fileID: 0}
     flags: 16
@@ -592,7 +592,7 @@ AnimationClip:
       m_Curve:
       - serializedVersion: 3
         time: 0
-        value: 55
+        value: 1
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -601,7 +601,7 @@ AnimationClip:
         outWeight: 0
       - serializedVersion: 3
         time: 0.016666668
-        value: 55
+        value: 1
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -612,7 +612,7 @@ AnimationClip:
       m_PostInfinity: 2
       m_RotationOrder: 4
     attribute: localScale.y
-    path: OperaShell/Dome
+    path: OperaShell/Model/Ceiling/Dome
     classID: 4
     script: {fileID: 0}
     flags: 16
@@ -622,7 +622,7 @@ AnimationClip:
       m_Curve:
       - serializedVersion: 3
         time: 0
-        value: 80
+        value: 1
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -631,7 +631,7 @@ AnimationClip:
         outWeight: 0
       - serializedVersion: 3
         time: 0.016666668
-        value: 80
+        value: 1
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -642,7 +642,7 @@ AnimationClip:
       m_PostInfinity: 2
       m_RotationOrder: 4
     attribute: localScale.z
-    path: OperaShell/Dome
+    path: OperaShell/Model/Ceiling/Dome
     classID: 4
     script: {fileID: 0}
     flags: 16
