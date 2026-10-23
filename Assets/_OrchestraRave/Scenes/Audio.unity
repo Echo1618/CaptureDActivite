@@ -3877,6 +3877,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1017434950}
+  - component: {fileID: 1017434951}
   m_Layer: 0
   m_Name: Cordes
   m_TagString: Untagged
@@ -3903,6 +3904,20 @@ Transform:
   - {fileID: 859357878}
   m_Father: {fileID: 935991612}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1017434951
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1017434949}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d43b83e5ca8df244829a83bc98313f6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MoveToGameObject
+  moveOnStart: 0
+  target: {fileID: 0}
 --- !u!1 &1085439595
 GameObject:
   m_ObjectHideFlags: 0
@@ -5651,6 +5666,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1362535255}
+  - component: {fileID: 1362535256}
   m_Layer: 0
   m_Name: Bois
   m_TagString: Untagged
@@ -5677,6 +5693,20 @@ Transform:
   - {fileID: 402010984}
   m_Father: {fileID: 935991612}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1362535256
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1362535254}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d43b83e5ca8df244829a83bc98313f6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MoveToGameObject
+  moveOnStart: 1
+  target: {fileID: 0}
 --- !u!1 &1397394530
 GameObject:
   m_ObjectHideFlags: 0
@@ -5717,6 +5747,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1422172948}
+  - component: {fileID: 1422172949}
   m_Layer: 0
   m_Name: Cuivres
   m_TagString: Untagged
@@ -5742,6 +5773,20 @@ Transform:
   - {fileID: 157893400}
   m_Father: {fileID: 935991612}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1422172949
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1422172947}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d43b83e5ca8df244829a83bc98313f6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MoveToGameObject
+  moveOnStart: 1
+  target: {fileID: 0}
 --- !u!1 &1448515394
 GameObject:
   m_ObjectHideFlags: 0
@@ -12354,6 +12399,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1758832538}
+  - component: {fileID: 1758832539}
   m_Layer: 0
   m_Name: Percussion
   m_TagString: Untagged
@@ -12378,6 +12424,20 @@ Transform:
   - {fileID: 842461303}
   m_Father: {fileID: 935991612}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1758832539
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1758832537}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d43b83e5ca8df244829a83bc98313f6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MoveToGameObject
+  moveOnStart: 1
+  target: {fileID: 0}
 --- !u!1 &1840064663
 GameObject:
   m_ObjectHideFlags: 0
@@ -13153,6 +13213,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2088631464}
+  - component: {fileID: 2088631465}
   m_Layer: 0
   m_Name: Electro
   m_TagString: Untagged
@@ -13177,6 +13238,20 @@ Transform:
   - {fileID: 516163873}
   m_Father: {fileID: 489445098}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2088631465
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2088631463}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2d43b83e5ca8df244829a83bc98313f6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MoveToGameObject
+  moveOnStart: 1
+  target: {fileID: 0}
 --- !u!1 &2115924520
 GameObject:
   m_ObjectHideFlags: 0
