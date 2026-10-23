@@ -418,7 +418,49 @@ AudioMixerController:
   m_SuspendThreshold: -80
   m_EnableSuspend: 1
   m_UpdateMode: 0
-  m_ExposedParameters: []
+  m_ExposedParameters:
+  - guid: e649c8256e8cac44a90347ffa118aed8
+    name: MyExposedParam 7
+  - guid: 362257313d1810b4e96934de57a4bafb
+    name: MyExposedParam 19
+  - guid: 6fafffa63fa268c439ed09019fc68831
+    name: MyExposedParam 13
+  - guid: 52729feb37fe14f4bbab18a836d15eab
+    name: BoisVolume
+  - guid: c63851ac3866b9f40a1270e792c98656
+    name: MyExposedParam 11
+  - guid: cbf0d21cb4cac3b4cbb618cab0077f8e
+    name: MyExposedParam 9
+  - guid: 3549cd742eee1bb4e9846a78066e98e3
+    name: MyExposedParam 15
+  - guid: 4c01bdaa15dd2834ebed8fe7e32b9707
+    name: CordesVolume
+  - guid: e828884cc5ff52e42b0c023586f61b67
+    name: CuivresVolume
+  - guid: af97661479f038b4eb180deb915234de
+    name: ElectroVolume
+  - guid: 2b806b1f06af21b4391ad74d96fe6255
+    name: MyExposedParam 10
+  - guid: 8255ed61403f5184aa3073a612ac7343
+    name: MyExposedParam 12
+  - guid: 14df5a6cd3339de4fb91b63fca876b46
+    name: GlobalVolume
+  - guid: d7add21b606837d4ba8c0dea3949e526
+    name: PercussionVolume
+  - guid: d9a31c9e0a71d26458988524ad182f8a
+    name: MyExposedParam 20
+  - guid: 66b2f11701ad78b48aa6bdb24ad9a40e
+    name: MyExposedParam 17
+  - guid: ec50cb6a0d9d6f148943cd44b93c618f
+    name: MyExposedParam 18
+  - guid: 41d472d90b678294a8f31d52f8608209
+    name: MyExposedParam 16
+  - guid: 34e9838c9f6b5784c9c6218a7905dcc4
+    name: MyExposedParam 14
+  - guid: f523dd490953b66459b46fdde04c2ef5
+    name: MyExposedParam 6
+  - guid: 0de3d8d8f8504c8468ac579dc7f114c8
+    name: MyExposedParam 8
   m_AudioMixerGroupViews:
   - guids:
     - 53fac080b801d274fab19a2ad67037d1
